@@ -1,0 +1,130 @@
+#%RAML 1.0
+title: ts-mdm-custom-wrapper
+securedBy: [basicAuth]
+protocols: [HTTPS]
+version: v1
+
+### SECURITY SCHEMES ###
+securitySchemes:
+  basicAuth: !include exchange_modules/595cfeca-6cfc-4614-9f68-c1ecc57cd90a.oem.technology-solutions.ts-us/basic-auth-security-scheme/1.0.2/basic-auth-security-scheme.raml
+
+## DATA TYPES ###
+types:
+  iqviaError: !include exchange_modules/595cfeca-6cfc-4614-9f68-c1ecc57cd90a.oem.technology-solutions.ts-us/iqvia-error/1.0.1/iqvia-error.raml
+  request:
+    type: object
+    properties: 
+      source?: !include resources/sourceEntity.raml
+      target?: !include resources/targetEntity.raml
+      entityDomainCode: string
+      entityType: string
+      entities: 
+        type: array
+        items: 
+          properties:
+            entityId: string
+            entity: object
+            targetEntity?: object
+            sourceEntity?: object
+  response:
+    type: object
+    properties:
+      entityType: string
+      entities:
+        type: array
+        items:
+          properties:
+            entityId: string
+            entity: object
+
+### TRAITS ###
+traits:
+  traceable: !include exchange_modules/595cfeca-6cfc-4614-9f68-c1ecc57cd90a.oem.technology-solutions.ts-us/traceable/1.0.0/traceable.raml
+  message-traceable: !include exchange_modules/595cfeca-6cfc-4614-9f68-c1ecc57cd90a.oem.technology-solutions.ts-us/tr-hd-message-id/1.0.1/tr-hd-message-id.raml
+
+### RESOURCES ###
+/upsertEntities:
+  post:
+    is: [traceable]
+    body: 
+      application/json:
+        type: request
+    responses: 
+      200:
+        description: Response same as standard's response
+        body:
+          application/json:
+            type: response
+      400:
+        description: Bad Request
+        body: 
+          application/json:
+            type: iqviaError
+      404:
+        description: Not Found
+        body: 
+          application/json:
+            type: iqviaError
+      405:
+        description: Method Not Allowed
+        body: 
+          application/json:
+            type: iqviaError
+      406:
+        description: Not Acceptable
+        body: 
+          application/json:
+            type: iqviaError
+      415:
+        description: Unsupported Media Type
+        body: 
+          application/json:
+            type: iqviaError
+      500:
+        description: Internal Server Error
+        body:
+          application/json:
+            type: iqviaError
+
+/queryEntities:
+  post:
+    is: [traceable]
+    body: 
+      application/json:
+        type: request
+    responses: 
+      200:
+        description: Response same as standard's response
+        body:
+          application/json:
+            type: response
+      400:
+        description: Bad Request
+        body: 
+          application/json:
+            type: iqviaError
+      404:
+        description: Not Found
+        body: 
+          application/json:
+            type: iqviaError
+      405:
+        description: Method Not Allowed
+        body: 
+          application/json:
+            type: iqviaError
+      406:
+        description: Not Acceptable
+        body: 
+          application/json:
+            type: iqviaError
+      415:
+        description: Unsupported Media Type
+        body: 
+          application/json:
+            type: iqviaError
+      500:
+        description: Internal Server Error
+        body:
+          application/json:
+            type: iqviaError  

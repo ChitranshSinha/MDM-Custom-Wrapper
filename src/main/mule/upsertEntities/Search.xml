@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+	<sub-flow name="Search" doc:id="c75652a8-3370-47dd-abf8-c7744eba73b6" >
+		<logger level="INFO" doc:name="SEARCH-Logic-START" doc:id="6c0accaf-b37d-45c6-a401-c4757ac3c8ac" message="SEARCH-Logic-START. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+		<flow-ref doc:name="SBC-PrimaryFlag" doc:id="f3c7a9c4-a96d-4189-a77b-1076e93a2e22" name="SBC-PrimaryFlag"/>
+		<ee:transform doc:name="reconstruct payload" doc:id="9112c990-f679-4ae4-80b3-d7b3b27e6728" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[output application/json  
+---
+{
+  entityType: payload.entityType,
+  entities: payload.entities map {
+    entityId: $.entityId,
+    entity: $.targetEntity
+  }
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<ee:transform doc:name="Add Identifier filter to SBC call" doc:id="d8926281-ee4f-41f8-9ab4-c4f175bb5dcd" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  skipNullOn="everywhere"
+var entityType = payload.entityType
+---
+{
+  entityType: entityType,
+  entities: payload.entities map (a, b) -> {
+    entityId: a.entityId,
+    entity: {
+      Filter: a.entity.Filter ++ {
+        ID: 
+          (if ((entityType == "Individual" and not (((sessionVars.varIncomingPayload.entities filter $.entityId == a.entityId).entity.searchCriteria[0] filter $.Field == "RCHCPFId").Value[0]) == null))
+            ("contains#" ++ (((sessionVars.varIncomingPayload.entities filter $.entityId == a.entityId).entity.searchCriteria[0] filter $.Field == "RCHCPFId").Value[0]))
+          else (if ((entityType == "Organization" and not (((sessionVars.varIncomingPayload.entities filter $.entityId == a.entityId).entity.searchCriteria[0] filter $.Field == "RocheCNPJTaxid").Value[0]) == null))
+            ("contains#" ++ (((sessionVars.varIncomingPayload.entities filter $.entityId == a.entityId).entity.searchCriteria[0] filter $.Field == "RocheCNPJTaxid").Value[0]))
+          else
+            null)),
+        UCINumber: 
+          (if ((entityType == "Individual" and not (((sessionVars.varIncomingPayload.entities filter $.entityId == a.entityId).entity.searchCriteria[0] filter $.Field == "UCINumber").Value[0]) == null))
+            ("contains#" ++ (((sessionVars.varIncomingPayload.entities filter $.entityId == a.entityId).entity.searchCriteria[0] filter $.Field == "UCINumber").Value[0]))
+          else (if ((entityType == "Individual" and not (((sessionVars.varIncomingPayload.entities filter $.entityId == a.entityId).entity.searchCriteria[0] filter $.Field == "RocheCNPJTaxid").Value[0]) == null))
+            ("contains#" ++ (((sessionVars.varIncomingPayload.entities filter $.entityId == a.entityId).entity.searchCriteria[0] filter $.Field == "UCINumber").Value[0]))
+          else
+            null))
+      },
+      Config: a.entity.Config
+    }
+  }
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</sub-flow>
+	<sub-flow name="SBC-PrimaryFlag" doc:id="39424ab7-1583-4685-9276-7a1b9b896549" >
+		<logger level="INFO" doc:name="removedSBC-PrimaryFlag_Logger" doc:id="a51a770c-0d69-40b1-8c9d-0c6207978396" message="removedSBC-PrimaryFlag. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]" />
+		<ee:transform doc:name="payload to Json" doc:id="b0a6e521-8b4a-4703-9a95-3a079f24ef5c" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<ee:transform doc:name="removedSBC-PrimaryFlag_adjust-payload" doc:id="a219416d-8a45-4a35-9f92-9f04c9571fef"  >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+fun payloadTraverse(val) =
+  val match {
+    case is Object -> using (key = $ pluck $$ as String)
+      (if ((key contains "Primary"))
+        $ - "Primary"
+      else
+        ($ mapObject {
+          (($$)) : payloadTraverse($)
+        }))
+    case is Array -> $ map payloadTraverse($)
+    else -> $
+  }
+---
+payloadTraverse(payload)]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</sub-flow>
+</mule>

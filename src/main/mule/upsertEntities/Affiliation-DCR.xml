@@ -1,0 +1,410 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+	<sub-flow name="Affiliation-DCR-Flow" doc:id="88a59738-f335-49ee-9191-7075bf55f7cf" >
+		<logger level="INFO" doc:name="Affiliation-DCR-Flow" doc:id="8f6fdc04-45a2-4dc6-93b9-eb91d9e717e0" message="Affiliation-DCR Logic Start. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+		<flow-ref doc:name="AffiliationSpecialtyErsValidation" doc:id="b366bfd4-d930-4682-a3cd-6333112e916e" name="AffiliationSpecialtyErsValidation"/>
+		<flow-ref doc:name="replace-primary-address-plus-add-RequiresAttention" doc:id="fb992d5e-70a5-4ddb-a0a3-8424bf0d2e19" name="replace-primary-address-plus-add-RequiresAttention"/>
+		<ee:transform doc:name="reconstruct payload" doc:id="de524eed-aa67-44ec-9433-9e8b00b579b0" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+---
+{
+  entityType: payload.entityType,
+  entities: payload.entities map (entity, entityPos) -> {
+    entityId: entity.entityId,
+    entity: entity.targetEntity mapObject {
+      (($$)) : $
+    } - "Data" ++ {
+      (Data: entity.targetEntity.Data mapObject {
+        (($$)) : $
+      } - "attributes" ++ {
+        (attributes: entity.targetEntity.Data.attributes mapObject {
+          (($$)) : $
+        } - "activitywith" - "Title" ++ {
+          (Title: (entity.entity.Affiliation.AffTitleCode default "" splitBy ";") map {
+            value: $
+          }) if (entity.targetEntity.Data.attributes.activitywith == null and not entity.entity.Affiliation.AffTitleCode == null)
+        } ++ {
+          (activitywith: [
+            entity.targetEntity.Data.attributes.activitywith[0] mapObject {
+              (($$)) : $
+            } - "value" - "Title" ++ {
+              (value: entity.targetEntity.Data.attributes.activitywith[0].value mapObject {
+                (($$)) : $
+              } - "Title" ++ {
+                (Title: (entity.entity.Affiliation.AffTitleCode splitBy ";") map {
+                  value: $
+                }) if entity.entity.Affiliation.AffTitleCode?
+              }) if entity.targetEntity.Data.attributes.activitywith[0].value?
+            }
+          ]) if entity.targetEntity.Data.attributes.activitywith?
+        }) if entity.targetEntity.Data.attributes?
+      }) if entity.targetEntity.Data?
+    }
+  }
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<flow-ref doc:name="Affiliation-status_Flow" doc:id="a4e1c9e0-8557-436b-837f-6ad4f4da61f5" name="Affiliation-status_Flow"/>
+	</sub-flow>
+	
+	<sub-flow name="Affiliation-status_Flow" doc:id="aaa95561-4444-4015-bd39-7992409e26af" >
+		<logger level="INFO" doc:name="Affiliation-status-Flow-START" doc:id="a97e32ed-956f-4e56-89c5-9a3970d414a2" message="Affiliation-status-Flow-START. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]" />
+		<choice doc:name="Check ManageRelationWith or ActivityWith" doc:id="945a47ea-17b6-433c-8a60-35ee77e828d0" >
+			<when expression="#[(upper(vars.varIncomingPayload.entityType) == 'CHANGEREQUESTAFFILIATION') and (vars.varIncomingPayload.entities[0].targetEntity.Data.attributes.managerelationwith != null)]" >
+				<set-payload value="#[payload]" doc:name="Set Payload" doc:id="aec109ac-6d40-40ab-a219-31108a920df2" mimeType="application/json" />
+				<ee:transform doc:name="Affiliation-managerelationwith" doc:id="ca7ea771-5998-4bf6-b0b3-90f82ec13d41" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[output application/json  
+---
+(payload - "entities") ++ ({
+  entities: payload.entities map (if (not $.entity.Data.attributes.managerelationwith == null)
+    (($ - "entity") ++ ({
+      entity: ($.entity - "Data") ++ ({
+        Data: ($.entity.Data - "attributes") ++ ({
+          attributes: ($.entity.Data.attributes - "managerelationwith" ++ ({
+            managerelationwith: [
+              ($.entity.Data.attributes.managerelationwith[0] - "value" ++ ({
+                value: ($.entity.Data.attributes.managerelationwith.value[0] ++ {
+                  ValidationStatus: [
+                    {
+                      value: "VALD"
+                    }
+                  ]
+                } ++ {
+                  AffiliationStatus: [
+                    {
+                      value: "ACTV"
+                    }
+                  ]
+                })
+              }))
+            ]
+          }))
+        })
+      })
+    }))
+  else
+    $)
+})]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</when>
+			<when expression="#[(upper(vars.varIncomingPayload.entityType) == 'CHANGEREQUESTAFFILIATION') and (vars.varIncomingPayload.entities[0].targetEntity.Data.attributes.activitywith != null)]" >
+				<ee:transform doc:name="Affiliation-activitywith" doc:id="9ae3e047-4705-494e-aed0-7cb9fa7c8783" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[output application/json  
+---
+(payload - "entities") ++ ({
+  entities: payload.entities map (if (not $.entity.Data.attributes.activitywith == null)
+    (($ - "entity") ++ ({
+      entity: ($.entity - "Data") ++ ({
+        Data: ($.entity.Data - "attributes") ++ ({
+          attributes: ($.entity.Data.attributes - "activitywith" ++ ({
+            activitywith: [
+              ($.entity.Data.attributes.activitywith[0] - "value" ++ ({
+                value: ($.entity.Data.attributes.activitywith.value[0] ++ {
+                  ValidationStatus: [
+                    {
+                      value: "VALD"
+                    }
+                  ]
+                } ++ {
+                  AffiliationStatus: [
+                    {
+                      value: "ACTV"
+                    }
+                  ]
+                })
+              }))
+            ]
+          }))
+        })
+      })
+    }))
+  else
+    $)
+})]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</when>
+			<otherwise >
+				<ee:transform doc:name="Transform Message" doc:id="516ff721-6f10-47b3-85fc-27fc509a6973" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[output application/json  
+---
+(payload - "entities") ++ ({
+  entities: payload.entities map (if (not $.entity.Data.attributes == null)
+    (($ - "entity") ++ ({
+      entity: ($.entity - "Data") ++ ({
+        Data: ($.entity.Data - "attributes") ++ ({
+          attributes: ($.entity.Data.attributes ++ {
+            ValidationStatus: [
+              {
+                value: "VALD"
+              }
+            ]
+          } ++ {
+            AffiliationStatus: [
+              {
+                value: "ACTV"
+              }
+            ]
+          })
+        })
+      })
+    }))
+  else
+    $)
+})]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</otherwise>
+		</choice>
+		<logger level="INFO" doc:name="Affiliation-status-Flow-END" doc:id="ca0bdc0d-93d5-4d3a-a829-ad78a3ba29f0" message="Affiliation-status-Flow-END. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]" />
+	</sub-flow>
+	<sub-flow name="replace-primary-address-plus-add-RequiresAttention" doc:id="edcb90f7-245b-4b2a-adc5-000d413a7884" >
+		<ee:transform doc:name="requiredAttention" doc:id="f5baa1ef-22b8-4741-a2b5-d1377b91a41c" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="requiresAttention" ><![CDATA[%dw 2.0
+output application/java
+---
+(p('RequiresAttention') == 'true') 
+and ((vars.varNewDCRFlag == 0) or (vars.varNewDCRFlag == '0'))
+and (( upper(vars.varIncomingPayload.entityType) == 'CHANGEREQUESTINDIVIDUAL' 
+	or upper(vars.varIncomingPayload.entityType) == 'CHANGEREQUESTORGANIZATION' 
+	or upper(vars.varIncomingPayload.entityType) == 'CHANGEREQUESTAFFILIATION') 
+	
+and (vars.varIncomingPayload.entities[0].entity.Individual != null 
+	or vars.varIncomingPayload.entities[0].entity.Organization != null
+))]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<logger level="INFO" doc:name="Replace Primary Address and perhaps Add RequiresAttention false " doc:id="b6f645f9-60f6-419d-98b1-7c0e233690ac" message="Replace Primary Address and perhaps Add RequiresAttention false. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]" />
+		<ee:transform doc:name="payload to json" doc:id="0bf04ae0-9943-4813-8b96-01b9f999819a" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<ee:transform doc:name="adjust-payload" doc:id="dac203f1-d81b-4bee-a623-c1baece437a2" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+fun payloadTraverse(val) =
+  val match {
+    case is Object -> using (key = $ pluck $$ as String)
+      (if ((key contains "Primary"))
+        $ - "Primary" ++ {
+          PrimaryAffiliation: [
+            {
+              value: 
+                if (($.Primary..value joinBy "") contains "true")
+                  "Y"
+                else
+                  "N"
+            }
+          ]
+        }
+      else
+        ($ mapObject {
+          (($$)) : payloadTraverse($)
+        }))
+    case is Array -> $ map payloadTraverse($)
+    else -> $
+  }
+---
+payloadTraverse(payload)]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<ee:transform doc:name="Insert RequiresAttention" doc:id="a317b9f6-2b2b-4532-b295-306a6e53cebd" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+fun payloadTraverse(val) =
+  val match {
+    case is Object -> using (key = $ pluck $$ as String)
+      (if ((vars.requiresAttention and (key contains "Country")))
+        $ ++ {
+          RequiresAttention: [
+            {
+              value: "false"
+            }
+          ]
+        }
+      else
+        ($ mapObject {
+          (($$)) : payloadTraverse($)
+        }))
+    case is Array -> $ map payloadTraverse($)
+    else -> $
+  }
+---
+payloadTraverse(payload)]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</sub-flow>
+	
+	<flow name="AffiliationSpecialtyErsValidation">
+        <ee:transform doc:name="FramingSpecialtyPaylaod">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/java  
+---
+{
+  entityType: payload.entityType,
+  entities: payload.entities map (entity, entityPos) -> {
+    entityId: entity.entityId,
+    ({
+      entity: entity.entity mapObject {
+        (($$)) : $
+      } - "AffiliationTypeCode" - "AffPrimaryFlag" - "Specialties" - "AffTitleCode" ++ {
+        (Specialties: 
+          if ((not (["", null] contains entity.entity.Specialties[0])))
+            entity.entity.Specialties[0]
+          else
+            [
+              {
+                SpecialtyCode: entity.sourceEntity.attributes.Specialities[0].value.Specialty[0].lookupCode
+              } ++ {
+                Rank: 2
+              } ++ {
+                ClientSpecialtyIdentifier: entity.entity.AffiliationMasterIdentifier replace "relations/" with "" ++ "#SPEC#1"
+              }
+            ]) if entity.sourceEntity.attributes.Specialities[0].value.Specialty[0].lookupCode?
+      }
+    }),
+    targetEntity :entity.targetEntity
+  }
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+        <flow-ref name="AddingClientSpecialtyIdentifieToSecSpecialty" doc:name="AddingClientSpecialtyIdentifieToSecSpecialty" />
+
+        <ee:transform doc:name="set payload to fFinalSpecKeyValuePair">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/java  
+---
+if(vars.fFinalSpecKeyValuePair?)
+(
+if(vars.fFinalSpecKeyValuePair != null or (not isEmpty(vars.fFinalSpecKeyValuePair) ))(vars.fFinalSpecKeyValuePair)
+else payload )
+else payload]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+        <logger message="AffiliationSpecialtyErsValidation flow have completed successfully. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]" level="INFO" doc:name="AffiliationSpecialtyErsValidation" />
+
+        <error-handler>
+            <on-error-continue doc:name="Catch Exception Strategy">
+                <ee:transform doc:name="set empty array">
+                    <ee:message>
+                        <ee:set-payload>%dw 2.0
+output application/java  
+---
+[]</ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+            </on-error-continue>
+        </error-handler>
+
+    </flow>
+	
+	
+	<sub-flow name="AddingClientSpecialtyIdentifieToSecSpecialty">
+        <ee:transform doc:name="Extracting clientSpecialtyIdentifier for specialty">
+            <ee:variables>
+                <ee:set-variable variableName="fClientSpecialtyIdentifier"><![CDATA[%dw 2.0
+output application/json  
+---
+((flatten(payload..Specialties) default []) filter not $.Rank == 1)..ClientSpecialtyIdentifier default []]]></ee:set-variable>
+                <ee:set-variable variableName="fSpecialtyFieldCheck"><![CDATA[%dw 2.0
+output application/java  
+---
+sizeOf((((flatten(payload..Specialties) default []) filter (not $.Rank == 1))..ClientSpecialtyIdentifier default []))]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <choice doc:name="check size and CUST-SYNC">
+            <when expression='#[vars.fSpecialtyFieldCheck &gt; 0 and upper(vars.fInputPayload.entityDomainCode) != "CUST-SYNC"]'>
+                <ee:transform doc:name="Construct ERS body">
+                    <ee:variables>
+                        <ee:set-variable variableName="fERSBody"><![CDATA[%dw 2.0
+output application/json  
+---
+{
+  systemName: "RELTIOMDM",
+  entityName: "SPECIALTY",
+  entityIds: vars.fClientSpecialtyIdentifier
+}]]></ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+                <ee:transform doc:name="ERSAPICallVariables">
+                    <ee:variables>
+                        <ee:set-variable variableName="fHost"><![CDATA[%dw 2.0
+output application/java  
+---
+vars.fInputPayload.source.ers.host]]></ee:set-variable>
+                        <ee:set-variable variableName="fPort"><![CDATA[%dw 2.0
+output application/java  
+---
+vars.fInputPayload.source.ers.port]]></ee:set-variable>
+                        <ee:set-variable variableName="fBasePath"><![CDATA[%dw 2.0
+output application/java  
+---
+vars.fInputPayload.source.ers.basePath]]></ee:set-variable>
+                        <ee:set-variable variableName="fUserName"><![CDATA[%dw 2.0
+output application/java 
+import * from dw::core::Binaries 
+---
+(read ( fromBase64 (vars.fInputPayload.source.ers.credentials))).clientId]]></ee:set-variable>
+                        <ee:set-variable variableName="fPassword"><![CDATA[%dw 2.0
+output application/java 
+import * from dw::core::Binaries 
+---
+(read ( fromBase64 (vars.fInputPayload.source.ers.credentials))).clientSecret]]></ee:set-variable>
+                        <ee:set-variable variableName="ERSpath"><![CDATA[%dw 2.0
+output application/java  
+---
+"/resolve-ids-entity" as String
+]]></ee:set-variable>
+                        <ee:set-variable variableName="ERSmethod"><![CDATA[%dw 2.0
+output application/java  
+---
+"POST" as String]]></ee:set-variable>
+						<ee:set-variable variableName="ftenantId" ><![CDATA[%dw 2.0
+output application/java
+---
+vars.tenantId]]></ee:set-variable>
+                    
+</ee:variables>
+                </ee:transform>
+                <flow-ref name="ERS-CommonHTTP-call" doc:name="ERS-CommonHTTP-call" />
+                <ee:transform doc:name="fFinalSpecKeyValuePair">
+                    <ee:variables>
+                        <ee:set-variable variableName="fFinalSpecKeyValuePair">%dw 2.0
+output application/json  
+---
+payload</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </when>
+            <otherwise>
+                <logger level="INFO" doc:name="Default" message="default flow have executed for the flow AddingClientSpecialtyIdentifieToSecSpecialty : No Specialty value in the payload or entityDomainCode is CUST-SYNC.  messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]" />
+            </otherwise>
+        </choice>
+        <logger message="AddingClientSpecialtyIdentifieToSecSpecialty flow have completed successfully. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]" level="INFO" doc:name="flow success logger" />
+    </sub-flow>
+	
+	
+</mule>

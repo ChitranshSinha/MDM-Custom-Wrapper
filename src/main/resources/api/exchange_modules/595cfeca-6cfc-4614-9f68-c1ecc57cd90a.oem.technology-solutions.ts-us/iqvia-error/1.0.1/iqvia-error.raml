@@ -1,0 +1,56 @@
+#%RAML 1.0 DataType
+type: object
+displayName: IQVIA Standard Error Response Format
+description: This data type represents a standard error response format. These properties are NOT required; in other words, each reserved property may appear zero or one times
+properties:
+  apiVersion?:
+    type: string
+    displayName: apiVersion
+    example: "1.0"
+    description: Version of the API
+  error?:
+    type: object
+    properties:
+      code?:
+        type: integer
+        description: Represents the code for this error. This property value will usually represent the HTTP response code. If there are multiple errors, code will be the error code for the first error.
+        example: 409
+      message?:
+        type: string
+        description: A human readable message providing more details about the error. If there are multiple errors, message will be the message for the first error.
+        example: "Lexi Id not found"
+      errors?:
+        type: array
+        items: 
+          type: object
+          properties:
+            domain?:
+              type: string
+              description: The name of the service, class or other identifier for where the error occured to better provide an understanding of what the issue was.
+              examples: 
+                first: "global"
+                second: "com.iqvia.mulesoft.mypackage"
+            reason?:
+              type: string
+              description: Unique identifier for this error. Different from the error.code property in that this is not an http response code. 
+              example: "LexiIdNotFound"      
+            message?:
+              type: string
+              description: A human readable message providing more details about the error. If there is only one error, this field will match error.message.
+              example: "Lexi Id not found"         
+            location?:
+              type: string
+              description: The location of the error (the interpretation of its value depends on locationType).
+              example: "LexiId"     
+            locationType?:
+              type: string
+              description: Indicates how the location property should be interpreted.
+              example: "URI parameter"             
+            extendedHelp?:
+              type: string
+              description: Extended help for the support - Knowledge Base Article ID (if avaliable)
+              example: "KB-121a"       
+            transactionId?:
+              type: string
+              description: Mule flow transaction Id (in guid format)
+              example: "efe0023e-0b80-4409-9652-6a61b540cede"  

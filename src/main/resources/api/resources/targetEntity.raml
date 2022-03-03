@@ -1,0 +1,13 @@
+#%RAML 1.0 DataType
+
+type: object
+properties: 
+  code: 
+    type: string
+    example: SFDCSALES
+  systemExternal?: 
+    type: array
+    items: !include /exchange_modules/595cfeca-6cfc-4614-9f68-c1ecc57cd90a.oem.technology-solutions.ts-us/dt-service-call-info/1.0.1/dt-service-call-info.raml
+  systemInternal?: !include /exchange_modules/595cfeca-6cfc-4614-9f68-c1ecc57cd90a.oem.technology-solutions.ts-us/dt-service-call-info/1.0.1/dt-service-call-info.raml
+  ers?: !include /exchange_modules/595cfeca-6cfc-4614-9f68-c1ecc57cd90a.oem.technology-solutions.ts-us/dt-service-call-info/1.0.1/dt-service-call-info.raml
+  cls?: !include /exchange_modules/595cfeca-6cfc-4614-9f68-c1ecc57cd90a.oem.technology-solutions.ts-us/dt-service-call-info/1.0.1/dt-service-call-info.raml

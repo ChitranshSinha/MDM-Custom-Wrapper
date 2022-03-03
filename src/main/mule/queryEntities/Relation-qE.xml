@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+	<sub-flow name="Relation-qE" doc:id="aa213ffc-8959-446a-98f1-0146b1392148" >
+		<logger level="INFO" doc:name="Relation-qE-LogicStart" doc:id="8c530d17-a228-43ee-bb94-9bb2b1a9ceda" message="Relation-qE-LogicStart. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+		<flow-ref doc:name="MDM-SYS-SubTypeAndTypeCall" doc:id="3617ccc1-f97b-4063-b1d2-81cc1feb9fa9" name="MDM-SYS-SubTypeAndTypeCall" target="subTypeType"/>
+		<ee:transform doc:name="initial Payload" doc:id="3d64e71b-b033-4a21-952a-75179011f7c0" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+vars.fInputPayload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<ee:transform doc:name="Transform Message" doc:id="2b14be93-4bb1-454d-ae0a-bbb317b13ecf" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+var AddRelations = ""
+fun payloadTraverse(val) =
+  val match {
+    case is Array -> $ map (v1, k1) -> payloadTraverse(v1)
+    case is Object -> $ mapObject (v2, k2) -> {
+      ((k2)) : payloadTraverse(addRelationsValue(v2, k2))
+    }
+    else -> $
+  }
+fun addRelationsValue(value1, index1) =
+  if ((index1 ~= "entity"))
+    value1 - "Relations" ++ (if ((value1.Relations?))
+      {
+        Relations: value1.Relations default [] map (AddRelationsFields($, $$))
+      }
+    else
+      {})
+  else
+    value1
+fun emptyArrayCheck(value) =
+  value default [] match {
+    case is Array -> null
+    else -> $
+  }
+fun AddRelationsFields(value, index) =
+  (value default [] ++ ({
+    RchAffiliationTypeCode: emptyArrayCheck((vars.subTypeType default [] filter ($.uri ~= ((value.ClientRelationIdentifier default "" splitBy "#")[0]))).AffiliationTypeCode[0]),
+    RchAffiliationSubTypeCode: emptyArrayCheck((vars.subTypeType default [] filter ($.uri ~= ((value.ClientRelationIdentifier default "" splitBy "#")[0]))).AffiliationSubtypeCode[0]),
+    RochePrimaryAffiliationIndicator: emptyArrayCheck((vars.subTypeType default [] filter ($.uri ~= ((value.ClientRelationIdentifier default "" splitBy "#")[0]))).PrimaryAffiliationIndicator[0]),
+    LocalSystemId: p('LocalSystemId')  //,
+ //   ( RCHRelRole : (value."type" splitBy  "/")[2]   ) if p('CoreR5Flag') 
+  }))
+---
+payloadTraverse(payload)]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<ee:transform doc:name="HCORelationLogic" doc:id="cdbf551f-1430-4bb8-a117-0becb10a7e89" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+var arrNodeObj = vars.arrNodeObj filter $.ety == "RELATIONS" default []
+var arrFieldsJson = vars.arrFieldsJson filter $.ety == "RELATIONS" default []
+var cfLib = readUrl("classpath://dw/GlobalFunctions.dwl")
+var entity = payload.entities
+fun emptyArrayCheck(value) =
+  value default [] match {
+    case is Array -> null
+    else -> $
+  }
+fun AfflIndicatorValidation(value) =
+  value match {
+    case is String -> if ((["TRUE", "Y"] contains upper(value)))
+      true
+    else
+      false
+    else -> false
+  }
+fun entitywithRelations(entity) =
+  {
+    entity01: entity.entity mapObject {
+      (($$)) : $
+    } - "OrganizationAddresses" - "Relations" ++ {
+      (Relations: entity.entity.Relations map (relAdd, relAddPos) -> (relAdd) - "RchAffiliationTypeCode" - "RchAffiliationSubTypeCode" - "RochePrimaryAffiliationIndicator" 
+      	++ {
+          RochePrimaryAffiliationIndicator: AfflIndicatorValidation(relAdd.RochePrimaryAffiliationIndicator),
+          RchAffiliationTypeCode: emptyArrayCheck(relAdd.RchAffiliationTypeCode),
+          RchAffiliationSubTypeCode: emptyArrayCheck(relAdd.RchAffiliationSubTypeCode)
+     //     ( RCHRelRole : (entity.sourceEntity."type" default "" splitBy  "/")[2]   ) if p('CoreR5Flag') ,
+       //   (RCHRelCountryCd : entity.sourceEntity.attributes.Country[0].lookupCode default null ) if p('CoreR5Flag')
+        }
+    ++     
+       if (p('CoreR5Flag'))  {
+       	RCHRelRole : (entity.sourceEntity."type" default "" splitBy  "/")[2]   ,
+       	RCHRelCountryCd : entity.sourceEntity.attributes.Country[0].lookupCode default null ,
+       	RCHStObTy: (flatten([entity.sourceEntity.startObject."type"]))[0],
+        RCHEdObTy: (flatten([entity.sourceEntity.endObject."type"]))[0]
+       }
+       else {}
+        
+        
+        ) if entity.entity.Relations?
+    }
+  }
+---
+{
+  entityType: payload.entityType,
+  entities: payload.entities map (entity, entityPos) -> {
+    entityId: entity.entityId,
+    (entity: entitywithRelations(entity).entity01) if entity.entity?,
+   // RCHStObTy: (flatten([entity.sourceEntity.startObject."type"]))[0],
+   // RCHEdObTy: (flatten([entity.sourceEntity.endObject."type"]))[0],
+    RCHStLbl: (flatten([entity.sourceEntity.startObject."label"]))[0],
+    RCHEdLbl: (flatten([entity.sourceEntity.endObject."label"]))[0],
+    LocalSystemId : p('LocalSystemId'),
+    (cfLib.getNodesandFields("RELATIONS", arrNodeObj, arrFieldsJson, entity.sourceEntity))
+  }
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</sub-flow>
+</mule>

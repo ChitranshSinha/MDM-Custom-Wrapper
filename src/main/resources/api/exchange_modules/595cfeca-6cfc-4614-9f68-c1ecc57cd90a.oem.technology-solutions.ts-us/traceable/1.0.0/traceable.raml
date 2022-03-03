@@ -1,0 +1,8 @@
+#%RAML 1.0 Trait
+headers:
+  tid:
+    displayName: tid (transaction id)
+    description: A tid is coming from a Mulesoft flow and it is usually a mule message root ID. Having a tid allows us to fully reconstruct how a particular value ended-up in our dbs, using Splunk or similar system.
+    pattern: ^(\{{0,1}([0-9a-fA-F]){8}-([0-9a-fA-F]){4}-([0-9a-fA-F]){4}-([0-9a-fA-F]){4}-([0-9a-fA-F]){12}\}{0,1})$
+    example: 470ed299-1647-11e8-87e0-48452081f82f
+    required: false

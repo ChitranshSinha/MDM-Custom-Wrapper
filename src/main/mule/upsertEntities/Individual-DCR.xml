@@ -1,0 +1,1117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:compatibility="http://www.mulesoft.org/schema/mule/compatibility" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/compatibility http://www.mulesoft.org/schema/mule/compatibility/current/mule-compatibility.xsd">
+	<http:request-config name="cls_HTTP_Request" doc:name="HTTP Request configuration" doc:id="7e1a122a-8ab0-411a-accd-c63e3a6e6f4e" basePath="#[vars.'tscls.basepath']" >
+		<http:request-connection protocol="HTTPS" host="#[vars.'tscls.host']" port="#[vars.'tscls.port']" >
+			<http:authentication >
+				<http:basic-authentication username="#[vars.creds.clientId]" password="#[vars.creds.clientSecret]" />
+			</http:authentication>
+		</http:request-connection>
+	</http:request-config>
+	<sub-flow name="Individual-DCR-flow" doc:id="e6a7b7db-814e-42e4-b85e-da6c3ef57487" >
+		<logger level="INFO" doc:name="Individual-DCR" doc:id="7ef3d606-dc97-4201-a6a7-13675a7011f0" message="Individual-DCR Logic Start. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+		<ee:transform doc:name="isActiveAddressNode" doc:id="7db9c966-4be6-4b0b-ace4-bb8385f3203b" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java  
+var coreR3FieldsFilter = (p("coreR3fieldList") splitBy "|") filter not $ == ""
+var indValues = vars.varIncomingPayload.entities[0].entity.Individual
+fun attributesAddition(value1, key1) =
+  [
+    {
+      ((key1)) : value1
+    }
+  ]
+var AddR3Fields = ({
+  (DispensingHCP: attributesAddition(indValues.RCHDispensingDoctorFlag, "value")) if (not indValues.RCHDispensingDoctorFlag == null and (coreR3FieldsFilter contains "RCHDISPENSINGDOCTORFLAG"))
+} ++ {
+  (InternationalHCP: attributesAddition(indValues.RCHInternationalHCP, "value")) if (not indValues.RCHInternationalHCP == null and (coreR3FieldsFilter contains "RCHINTERNATIONALHCP"))
+} ++ {
+  (Prefix2: attributesAddition(indValues.RCHSecondarySalutation, "value")) if (not indValues.RCHSecondarySalutation == null and (coreR3FieldsFilter contains "RCHSECONDARYSALUTATION"))
+} ++ {
+  (WebsiteURL: attributesAddition(indValues.RCHWebsiteURL, "value")) if (not indValues.RCHWebsiteURL == null and (coreR3FieldsFilter contains "RCHWEBSITEURL"))
+} ++ {
+  (PreferredName: attributesAddition(indValues.PreferredName, "value")) if (not indValues.PreferredName == null)
+} ++ {
+  (Identifiers: ((indValues.RCHNationalId) default "" splitBy ";") map (value02, index02) -> {
+    value: {
+      Type: [
+        {
+          value: "NATIONAL_ID"
+        }
+      ],
+      ID: [
+        {
+          value: value02
+        }
+      ]
+    }
+  }) if (not indValues.RCHNationalId == null and (coreR3FieldsFilter contains "RCHNATIONALID"))
+})
+fun AddNId(value) =
+  (value match {
+    case is Array -> $ map (v1, k1) -> (AddNId(v1))
+    case is Object -> $ mapObject (v2, k2) -> {
+      ((k2)) : 
+        if ((k2 ~= "attributes"))
+          AddNId(addNationalIdField(v2))
+        else
+          AddNId(v2)
+    }
+    else -> $
+  })
+fun addNationalIdField(value) =
+  using (indValues = vars.varIncomingPayload.entities[0].entity.Individual)
+    ((value default {}) - "Identifiers" ++ AddR3Fields)
+fun nationalIdValue(value01) =
+  ((value01 as String) default "" splitBy ";") map (value02, index02) -> {
+    value: {
+      Type: [
+        {
+          value: "NATIONAL_ID"
+        }
+      ],
+      ID: [
+        {
+          value: value02
+        }
+      ]
+    }
+  }
+fun payloadTraverse(value) =
+  (value match {
+    case is Array -> $ map (v1, k1) -> (payloadTraverse(v1))
+    case is Object -> $ mapObject (v2, k2) -> {
+      ((k2)) : 
+        if ((k2 ~= "attributes"))
+          payloadTraverse(addAddressField(v2))
+        else
+          payloadTraverse(v2)
+    }
+    else -> $
+  })
+fun addAddressField(value) =
+  using (indValues = vars.varIncomingPayload.entities[0].entity.Individual)
+    ((value default {}) - "Identifiers" ++ {
+      Address: [
+        {
+          refRelation: {
+            crosswalks: [
+              {
+                "type": "configuration/sources/" ++ ((vars.varIncomingPayload.entities[0].entity.Individual.IndividualAddresses[0].MasterIndividualAddressIdentifier default "default#default") splitBy "#")[-1],
+                value: vars.varIncomingPayload.entities[0].entity.SourceAccountAddressIdentifier
+              }
+            ],
+            objectURI: ((vars.varIncomingPayload.entities[0].entity.Individual.IndividualAddresses[0].MasterIndividualAddressIdentifier default "default#default") splitBy "#")[0]
+          },
+          refEntity: {
+            objectURI: "entities/" ++ ((vars.varIncomingPayload.entities[0].entity.Individual.IndividualAddresses[0].Address.MasterAddressIdentifier default "default#default") splitBy "#")[0]
+          }
+        }
+      ]
+    } ++ AddR3Fields)
+---
+if ((((sizeOf(vars.varIncomingPayload.entities[0].entity.Individual.IndividualAddresses) default "") > 0) and (vars.varIncomingPayload.entities.targetEntity[0].Data.attributes.Address?)))
+  AddNId(vars.varIncomingPayload)
+else
+  payloadTraverse(vars.varIncomingPayload)]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+			</ee:variables>
+		</ee:transform>
+		<set-variable value="#[payload]" doc:name="varIncomingPayload" doc:id="fae1f3d6-11ee-4e93-be63-21b0c698e0de" variableName="varIncomingPayload"/>
+		<flow-ref doc:name="upsert-entitiesSub_Flow-Individual" doc:id="29159d5b-031e-44f5-a037-4aeb35c688dc" name="upsert-entitiesSub_Flow-Individual"/>
+		<ee:transform doc:name="payload,AdressStatus &amp; MasterAddressCheck" doc:id="eb836706-f3e0-4c88-9633-e8706daa9cd6" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+---
+if ((vars.varIncomingPayload.entities.entity.Individual.RCHProfessionalID..ID == null and vars.varIncomingPayload.entities.entity.Individual.RCHCPFId == null))
+  payload
+else
+  ((payload - "entities") ++ ({
+    entities: payload.entities map (if (not $.entity.Data.attributes == null)
+      (($ - "entity") ++ ({
+        entity: ($.entity - "Data") ++ ({
+          Data: ($.entity.Data - "attributes") ++ ({
+            attributes: ($.entity.Data.attributes ++ ({
+              Identifiers: [
+                ({
+                  value: {
+                    Type: [
+                      {
+                        value: 
+                          if (vars.varIncomingPayload.entities.entity.Individual.RCHProfessionalID..Type == null)
+                            null
+                          else
+                            vars.varIncomingPayload.entities.entity.Individual.RCHProfessionalID..Type[0]
+                      }
+                    ],
+                    ID: [
+                      {
+                        value: 
+                          if (vars.varIncomingPayload.entities.entity.Individual.RCHProfessionalID..ID == null)
+                            null
+                          else
+                            vars.varIncomingPayload.entities.entity.Individual.RCHProfessionalID..ID[0]
+                      }
+                    ],
+                    State: [
+                      {
+                        value: 
+                          if (vars.varIncomingPayload.entities.entity.Individual.RCHProfessionalID..State == null)
+                            null
+                          else
+                            vars.varIncomingPayload.entities.entity.Individual.RCHProfessionalID..State[0]
+                      }
+                    ]
+                  }
+                }) if not vars.varIncomingPayload.entities.entity.Individual.RCHProfessionalID..ID == null
+              ] ++ [
+                ({
+                  value: {
+                    Type: [
+                      {
+                        value: 
+                          if (vars.varIncomingPayload.entities.entity.Individual.RCHCPFId == null)
+                            null
+                          else
+                            "CPF"
+                      }
+                    ],
+                    ID: [
+                      {
+                        value: 
+                          if (vars.varIncomingPayload.entities.entity.Individual.RCHCPFId == null)
+                            null
+                          else
+                            vars.varIncomingPayload.entities.entity.Individual.RCHCPFId[0]
+                      }
+                    ]
+                  }
+                }) if not vars.varIncomingPayload.entities.entity.Individual.RCHCPFId == null
+              ]
+            }))
+          })
+        })
+      }))
+    else
+      $)
+  }))]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="varMasterAddressIdentifier" ><![CDATA[%dw 2.0
+output application/json  
+---
+if (((vars.varIncomingPayload.entities..entity.Individual.IndividualAddresses..MasterIndividualAddressIdentifier == null) 
+	or (vars.varIncomingPayload.entities..entity.Individual.IndividualAddresses..MasterIndividualAddressIdentifier joinBy "") == null 
+	or (vars.varIncomingPayload.entities..entity.Individual.IndividualAddresses..MasterIndividualAddressIdentifier joinBy "") == ""
+))
+  0
+else
+  1]]></ee:set-variable>
+				<ee:set-variable variableName="varAdressStatusCheck" ><![CDATA[%dw 2.0
+output application/json  
+---
+if (((vars.varIncomingPayload.entities..entity.Individual.IndividualAddresses..RCHAccountAddressStatus == null) 
+	or (vars.varIncomingPayload.entities..entity.Individual.IndividualAddresses..RCHAccountAddressStatus joinBy "") == null 
+	or (vars.varIncomingPayload.entities..entity.Individual.IndividualAddresses..RCHAccountAddressStatus joinBy "") == ""
+))
+  0
+else
+  1]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<choice doc:name="Choice" doc:id="d2345d64-c3c7-4bce-8ac9-5f113a61d4fe" >
+			<when expression="#[vars.varAdressStatusCheck == 1 and vars.varMasterAddressIdentifier == 1]">
+				<logger level="INFO" doc:name="AddingAddressStatusCodeIndividual" doc:id="2837b8d8-aa24-42d8-8317-f45bfab84272" message='"AddingAddressStatusCodeIndividual". messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]'/>
+				<ee:transform doc:name="set varIndAddressStatus" doc:id="bffd9d6c-a219-45aa-96d0-7f7918d92d76">
+					<ee:message>
+					</ee:message>
+					<ee:variables >
+						<ee:set-variable variableName="varIndAddressStatus" ><![CDATA[%dw 2.0
+output application/java  
+---
+vars.varIncomingPayload.entities[0].entity.Individual.IndividualAddresses[0].RCHAccountAddressStatus]]></ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+				<ee:transform doc:name="setVarpAddressStatus &amp; ClsIndReqAddressStatus" doc:id="1804df09-752c-4cde-b326-14424adfd405" >
+					<ee:message >
+					</ee:message>
+					<ee:variables >
+						<ee:set-variable variableName="varPayload" ><![CDATA[%dw 2.0
+output application/java
+---
+payload]]></ee:set-variable>
+						<ee:set-variable variableName="ClsIndReqAddressStatus" ><![CDATA[%dw 2.0
+output application/json  
+var clsBody = {
+  sourceSystemCode: "SFDCSALES",
+  entityName: "IndividualAddresses",
+  codeFieldName: "AccountAddressStatus",
+  targetSystemCode: "RELTIOMDM"
+}
+var codes = vars.varIndAddressStatus
+var codesmap = (clsBody ++ {
+  codeValue: codes
+})
+---
+[
+  codesmap
+]]]></ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+				<set-payload value="#[vars.ClsIndReqAddressStatus]" doc:name="vars.ClsIndReqAddressStatus" doc:id="a4d00c40-161c-405a-806a-4e9de7f6cae2" />
+				<http:request method="POST" doc:name="HttpsClsConfig" doc:id="7e1a122a-8ab0-411a-accd-c63e3a6e6f4e" config-ref="cls_HTTP_Request" path="/code-lookup" requestStreamingMode="NEVER" >
+					<http:headers ><![CDATA[#[output application/java
+---
+{
+    "tid" : vars.tid,
+    "Content-Type" : "application/json",
+    "messageid" : vars.messageid
+}]]]></http:headers>
+					<http:query-params ><![CDATA[#[output application/java
+---
+{
+	tenantId : vars.tenantId
+}]]]></http:query-params>
+				</http:request>
+				<ee:transform doc:name="Transform Message" doc:id="d4e9d958-4612-4515-b716-f1f39b4d6e85" >
+					<ee:message >
+					</ee:message>
+					<ee:variables >
+						<ee:set-variable variableName="varAdressStatusCode" ><![CDATA[%dw 2.0
+output application/java  
+---
+payload.SFDCSALES.IndividualAddresses.AccountAddressStatus default {} pluck (v1, k1) -> {
+  value: v1.code
+}]]></ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+				<ee:transform doc:name="Transform Message" doc:id="da48fd7f-ad0d-4424-8473-2428adc60f82" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+---
+((vars.varPayload - "entities") ++ ({
+  entities: vars.varPayload.entities map (if (not $.entity.Data.attributes == null)
+    (($ - "entity") ++ ({
+      entity: ($.entity - "Data") ++ ({
+        Data: ($.entity.Data - "attributes") ++ ({
+          attributes: ($.entity.Data.attributes - "Address") ++ ({
+            Address: $.entity.Data.attributes.Address map ($ - "value" ++ {
+              value: $.value default {} ++ {
+                ValidationStatus: [
+                  {
+                    value: 
+                      if (vars.varAdressStatusCode.value[0] == "ACTV")
+                        "VALD"
+                      else if (vars.varAdressStatusCode.value[0] == "INAC")
+                        "INVL"
+                      else
+                        null
+                  }
+                ]
+              } ++ {
+                Status: [
+                  {
+                    value: vars.varAdressStatusCode.value[0]
+                  }
+                ]
+              }
+            })
+          })
+        })
+      })
+    }))
+  else
+    $)
+}))]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<logger level="INFO" doc:name="FinalPayloadWithAddress Status" doc:id="7842afd9-5a03-4c40-9ed3-6a35d3720263" message='"FinalPayloadWithAddress Status: #[payload]". messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]'/>
+			</when>
+			<otherwise >
+				<logger level="INFO" doc:name="No Address Status" doc:id="ec19f0a1-eeca-4f28-8e2a-db320589a9a3" message="UpsertFlow ends with no Address Status. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+			</otherwise>
+		</choice>
+	</sub-flow>
+	
+	<sub-flow name="upsert-entitiesSub_Flow-Individual" doc:id="3c4ba85a-1837-4a7a-86f4-123f64948e2c" >
+		<ee:transform doc:name="set-cls-params and other vars" doc:id="5f8380cc-300e-4ad6-b969-abbf8c546983" >
+			<ee:variables >
+				<ee:set-variable variableName="tscls.host" ><![CDATA[%dw 2.0
+output application/java  
+---
+vars.varIncomingPayload.target.cls.host]]></ee:set-variable>
+				<ee:set-variable variableName="tscls.port" ><![CDATA[%dw 2.0
+output application/java  
+---
+vars.varIncomingPayload.target.cls.port]]></ee:set-variable>
+				<ee:set-variable variableName="tscls.basepath" ><![CDATA[%dw 2.0
+output application/java  
+---
+vars.varIncomingPayload.target.cls.basePath]]></ee:set-variable>
+				<ee:set-variable variableName="creds" ><![CDATA[%dw 2.0
+import * from dw::core::Binaries
+output application/java
+---
+//read(decode(vars.varIncomingPayload.target.cls.credentials), "application/json")
+
+read(fromBase64(vars.varIncomingPayload.target.cls.credentials as String), "application/json")]]></ee:set-variable>
+				<ee:set-variable variableName="MasterIndId" ><![CDATA[%dw 2.0
+output application/java  
+---
+vars.varIncomingPayload.entities[0].entity.Individual.IndividualAddresses[0].MasterIndividualAddressIdentifier default null]]></ee:set-variable>
+				<ee:set-variable variableName="varInterestSpecialtyCheck" ><![CDATA[%dw 2.0
+output application/json  
+---
+if ((vars.varIncomingPayload.entities..entity.Individual.InterestSpecialties == null) or (vars.varIncomingPayload.entities..entity.Individual.InterestSpecialties joinBy "") == null or (vars.varIncomingPayload.entities..entity.Individual.InterestSpecialties joinBy "") == "")
+  0
+else
+  1]]></ee:set-variable>
+			
+</ee:variables>
+		</ee:transform>
+		<choice doc:name="Check varInterestSpecialtyCheck" doc:id="ac6248c3-c573-4714-b496-fc65069b89de" >
+			<when expression="#[vars.varInterestSpecialtyCheck == 1]">
+				<ee:transform doc:name="Var splityBy- InterestSpecList" doc:id="d1668674-d001-42ba-80b9-49ba071dd5d8" >
+					<ee:variables >
+						<ee:set-variable variableName="InterestSpecList" ><![CDATA[%dw 2.0
+output application/java  
+---
+vars.varIncomingPayload.entities[0].entity.Individual.InterestSpecialties splitBy (";")]]></ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+				<flow-ref doc:name="prepare-cls-request-payload" doc:id="2e3c0595-e20c-4252-b72d-09c4c26b42bf" name="prepare-cls-request" />
+				<flow-ref doc:name="ClsAPICall" doc:id="ec87ab12-f9b6-4ce3-9619-7ed2319b9b4d" name="ClsAPICall-Sub_Flow" />
+				<flow-ref doc:name="prepare-mdm-spec-payload" doc:id="5e4a37e8-c858-448e-86ac-0885807f96be" name="prepare-mdm-spec-payload" />
+				<set-payload value="#[vars.varIncomingPayload]" doc:name="Set Payload" doc:id="111b1f56-886e-448c-a0fa-3c9f81616101" />
+				<ee:transform doc:name="sAffTitleCode" doc:id="b2fc45b1-f094-4b71-982f-927c731fa7b0" >
+					<ee:variables >
+						<ee:set-variable variableName="sAffTitleCode" ><![CDATA[%dw 2.0
+output application/java  
+---
+if (payload.entities[0].entity.Affiliation.AffTitleCode?)
+  payload.entities[0].entity.Affiliation.AffTitleCode
+else
+  null]]></ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+				<flow-ref doc:name="replace-primary-address-plus-add-RequiresAttention - Flow Reference" doc:id="cb82d76e-8eeb-4e05-bd3e-7e14e79a3978" name="replace-primary-address-plus-add-RequiresAttention" />
+				<ee:transform doc:name="Transform Message - inject attributes node" doc:id="3f825745-0223-4cd9-8076-fa2cc870b447" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+var dataAttributes = payload.entities.targetEntity.Data.attributes
+---
+{
+  entityType: payload.entityType,
+  entities: payload.entities map {
+    entityId: $.entityId,
+    entity: $.entity,
+    targetEntity: 
+      (if ((not dataAttributes == null and not dataAttributes == [] and not dataAttributes == ""))
+        $.targetEntity mapObject {
+          (($$)) : $
+        }
+      else
+        $.targetEntity mapObject {
+          (($$)) : 
+            (if ($$ ~= "Data")
+              $ ++ {
+                attributes: {}
+              }
+            else
+              $)
+        })
+  }
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<set-payload value="#[payload]" doc:name="Set Payload" doc:id="4f6a4797-cc2f-4a8f-8d7e-b20a01a395cb" mimeType="application/json" />
+				<ee:transform doc:name="Transform Message - With Interest Specialties" doc:id="948e4337-c4d0-4787-bccc-fef82e9be76d" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+var dataAttributes = payload.entities.targetEntity.Data.attributes
+---
+{
+  entityType: payload.entityType,
+  entities: payload.entities map {
+    entityId: $.entityId,
+    entity: $.targetEntity mapObject (targetEntity, targetEntityPos) -> {
+      ((targetEntityPos)) : 
+        if (targetEntityPos ~= "Data")
+          (targetEntity mapObject (data, dataPos) -> {
+            ((dataPos)) : 
+              if (dataPos ~= "attributes")
+                (data mapObject (attributes, attributesPos) -> {
+                    ((attributesPos)) : attributes
+                  } - "Specialities" ++ {
+                  Specialities: vars.varMdmInterestSpecialty
+                })
+              else
+                data
+          })
+        else
+          targetEntity
+    }
+  }
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<flow-ref doc:name="Address-attributes" doc:id="7296efa0-6225-49ea-88ea-47c274c82215" name="Address-attributes" />
+				<ee:transform doc:name="Transform Message" doc:id="55a4886d-9d35-4c29-a7ab-502179b70852" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+---
+(payload - "entities") ++ ({
+  entities: payload.entities map (if (not $.entity.Data.attributes.activitywith.value == null)
+    (($ - "entity") ++ ({
+      entity: ($.entity - "Data") ++ ({
+        Data: ($.entity.Data - "attributes") ++ ({
+          attributes: ($.entity.Data.attributes - "activitywith") ++ ({
+            activitywith: [
+              ($.entity.Data.attributes.activitywith[0] - "value" ++ ({
+                value: ($.entity.Data.attributes.activitywith[0].value ++ {
+                  ValidationStatus: [
+                    {
+                      value: "VALD"
+                    }
+                  ]
+                } ++ {
+                  AffiliationStatus: [
+                    {
+                      value: "ACTV"
+                    }
+                  ]
+                } ++ {
+                  (Title: (vars.sAffTitleCode splitBy ";") map {
+                    value: $
+                  }) if vars.sAffTitleCode?
+                })
+              }))
+            ]
+          })
+        })
+      })
+    }))
+  else
+    $)
+})]]></ee:set-payload>
+					</ee:message>
+					<ee:variables >
+						<ee:set-variable variableName="fFinalPayload1" ><![CDATA[%dw 2.0
+output application/java  
+---
+(payload - "entities") ++ ({
+  entities: payload.entities map (if (not $.entity.Data.attributes.activitywith.value == null)
+    (($ - "entity") ++ ({
+      entity: ($.entity - "Data") ++ ({
+        Data: ($.entity.Data - "attributes") ++ ({
+          attributes: ($.entity.Data.attributes - "activitywith") ++ ({
+            activitywith: [
+              ($.entity.Data.attributes.activitywith[0] - "value" ++ ({
+                value: ($.entity.Data.attributes.activitywith[0].value ++ {
+                  ValidationStatus: [
+                    {
+                      value: "VALD"
+                    }
+                  ]
+                } ++ {
+                  AffiliationStatus: [
+                    {
+                      value: "ACTV"
+                    }
+                  ]
+                } ++ {
+                  (Title: (vars.sAffTitleCode splitBy ";") map {
+                    value: $
+                  }) if vars.sAffTitleCode?
+                })
+              }))
+            ]
+          })
+        })
+      })
+    }))
+  else
+    $)
+})]]></ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+			</when>
+			<otherwise >
+				<ee:transform doc:name="sAffTitleCode" doc:id="ad685b30-b235-4015-9175-97eb27f56aff" >
+					<ee:variables >
+						<ee:set-variable variableName="sAffTitleCode" ><![CDATA[%dw 2.0
+output application/java  
+---
+if (payload.entities[0].entity.Affiliation.AffTitleCode?)
+  payload.entities[0].entity.Affiliation.AffTitleCode
+else
+  null]]></ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+				<flow-ref doc:name="replace-primary-address-plus-add-RequiresAttention - Flow Reference" doc:id="93d3c17c-bdcd-40d9-a1bd-06fa97689cc2" name="replace-primary-address-plus-add-RequiresAttention" />
+				<ee:transform doc:name="Transform Message - No Interest Specialties" doc:id="a2f995fb-2b2b-4ba4-a6a5-3323c8da2e6b" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[output application/json  
+---
+{
+  entityType: payload.entityType,
+  entities: payload.entities map {
+    entityId: $.entityId,
+    entity: $.targetEntity
+  }
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<flow-ref doc:name="Address-attributes" doc:id="8550115b-6060-4903-b322-7862f053ec79" name="Address-attributes" />
+				<ee:transform doc:name="Transform Message" doc:id="0d9cfda2-43fd-4a25-8336-a70ed2812434" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+---
+(payload - "entities") ++ ({
+  entities: payload.entities map (if (not $.entity.Data.attributes.activitywith.value == null)
+    (($ - "entity") ++ ({
+      entity: ($.entity - "Data") ++ ({
+        Data: ($.entity.Data - "attributes") ++ ({
+          attributes: ($.entity.Data.attributes - "activitywith") ++ ({
+            activitywith: [
+              ($.entity.Data.attributes.activitywith[0] - "value" ++ ({
+                value: ($.entity.Data.attributes.activitywith[0].value ++ {
+                  ValidationStatus: [
+                    {
+                      value: "VALD"
+                    }
+                  ]
+                } ++ {
+                  AffiliationStatus: [
+                    {
+                      value: "ACTV"
+                    }
+                  ]
+                } ++ {
+                  (Title: (vars.sAffTitleCode splitBy ";") map {
+                    value: $
+                  }) if vars.sAffTitleCode?
+                })
+              }))
+            ]
+          })
+        })
+      })
+    }))
+  else
+    $)
+})]]></ee:set-payload>
+					</ee:message>
+					<ee:variables >
+						<ee:set-variable variableName="fFinalPayload1" ><![CDATA[%dw 2.0
+output application/java  
+---
+(payload - "entities") ++ ({
+  entities: payload.entities map (if (not $.entity.Data.attributes.activitywith.value == null)
+    (($ - "entity") ++ ({
+      entity: ($.entity - "Data") ++ ({
+        Data: ($.entity.Data - "attributes") ++ ({
+          attributes: ($.entity.Data.attributes - "activitywith") ++ ({
+            activitywith: [
+              ($.entity.Data.attributes.activitywith[0] - "value" ++ ({
+                value: ($.entity.Data.attributes.activitywith[0].value ++ {
+                  ValidationStatus: [
+                    {
+                      value: "VALD"
+                    }
+                  ]
+                } ++ {
+                  AffiliationStatus: [
+                    {
+                      value: "ACTV"
+                    }
+                  ]
+                } ++ {
+                  (Title: (vars.sAffTitleCode splitBy ";") map {
+                    value: $
+                  }) if vars.sAffTitleCode?
+                })
+              }))
+            ]
+          })
+        })
+      })
+    }))
+  else
+    $)
+})]]></ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+			</otherwise>
+		</choice>
+		<ee:transform doc:name="CLS requestBody for RCHOtherSpec" doc:id="817582c1-2067-4cd4-84c6-0e2cc5ae361c" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+---
+flatten((vars.varIncomingPayload..RocheOtherSpecialities default [] map ($ splitBy ";"))) map {
+  sourceSystemCode: "SFDCSALES",
+  entityName: "Specialties",
+  codeFieldName: "SpecialtyCode",
+  codeValue: $,
+  targetSystemCode: "RELTIOMDM"
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="fbdced33-9a2c-4528-bfdf-0a68869a0fa9" message="cls request payload #[payload] ::: messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+		<flow-ref doc:name="ClsAPICall-Sub_Flow" doc:id="711c295e-3f5b-4981-9c61-701fa9f31559" name="ClsAPICall-Sub_Flow" />
+		<ee:transform doc:name="fkeyValuePairOthrSpec" doc:id="5c863a45-96a9-421d-813e-7be67fbcf385" >
+			<ee:variables >
+				<ee:set-variable variableName="fkeyValuePairOthrSpec" ><![CDATA[%dw 2.0
+output application/json  
+---
+vars.varClsOutput.SFDCSALES.Specialties.SpecialtyCode default {} pluck (v1, k1) -> {
+  key: k1,
+  value: v1.code
+}]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<ee:transform doc:name="payload=vars.fFinalPayload1" doc:id="381b9c72-b880-461d-ba9c-1c7620a87ffc" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java  
+---
+vars.fFinalPayload1]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="910e6392-61ac-4075-890c-6d3bd0bffb58" message='"key value pair Other Spec $(vars.fkeyValuePairOthrSpec)" and #[vars.fkeyValuePairOthrSpec] printing payload before output payload #[payload]' />
+		<ee:transform doc:name="o/p Payload" doc:id="4fc333fb-4d2d-460e-ab5b-cc9506ed61cf" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+---
+{
+  entityType: payload.entityType,
+  entities: payload.entities map (v1, k1) -> (v1 mapObject (v2, k2) -> {
+        ((k2)) : v2
+      } - "entity" ++ (if (not payload.entities[k1].entity == null)
+      ({
+        entity: 
+          (if (not payload.entities[k1].entity.Data == null)
+            payload.entities[k1].entity mapObject (v3, k3) -> {
+                ((k3)) : v3
+              } - "Data" ++ ({
+              Data: 
+                (if (not payload.entities[k1].entity.Data.attributes == null)
+                  payload.entities[k1].entity.Data mapObject (v4, k4) -> {
+                      ((k4)) : v4
+                    } - "attributes" ++ ({
+                    attributes: payload.entities[k1].entity.Data.attributes mapObject (v5, k5) -> {
+                        ((k5)) : v5
+                      } - "Specialities" ++ (if (not payload.entities[k1].entity.Data.attributes.Specialities == null)
+                      ({
+                        Specialities: (((payload.entities[k1].entity.Data.attributes.Specialities filter ($.value.Rank[0].value == 1 and $.value.SpecialtyType[0].value == "SPEC") default []) ++ (payload.entities[k1].entity.Data.attributes.Specialities filter ($.value.Rank[0].value == 2 and $.value.SpecialtyType[0].value == "SPEC") default [] map ({
+                          value: {
+                            Specialty: [
+                              {
+                                value: $.value.Specialty[0].value
+                              }
+                            ],
+                            Rank: [
+                              {
+                                value: 1
+                              }
+                            ],
+                            SpecialtyType: [
+                              {
+                                value: "SEC"
+                              }
+                            ]
+                          }
+                        })) ++ (((vars.varIncomingPayload.entities[k1]..RocheOtherSpecialities)[0] splitBy ";" default []) map (v6, k6) -> ({
+                          value: {
+                            Specialty: [
+                              {
+                                value: (vars.fkeyValuePairOthrSpec default [] filter ($.key == v6))[0].value default v6
+                              }
+                            ],
+                            Rank: [
+                              {
+                                value: k6 + 1
+                              }
+                            ],
+                            SpecialtyType: [
+                              {
+                                value: "OTHR"
+                              }
+                            ]
+                          }
+                        })) ++ (payload.entities[k1].entity.Data.attributes.Specialities filter (not $.value.SpecialtyType[0].value == "SPEC") default [])))
+                      })
+                    else (if ((not vars.varIncomingPayload.entities[k1]..RocheOtherSpecialities == null))
+                      ({
+                        Specialities: (((vars.varIncomingPayload.entities[k1]..RocheOtherSpecialities)[0] splitBy ";" default []) map (v8, k8) -> ({
+                          value: {
+                            Specialty: [
+                              {
+                                value: (vars.fkeyValuePairOthrSpec default [] filter ($.key == v8))[0].value default v8
+                              }
+                            ],
+                            Rank: [
+                              {
+                                value: k8 + 1
+                              }
+                            ],
+                            SpecialtyType: [
+                              {
+                                value: "OTHR"
+                              }
+                            ]
+                          }
+                        }))
+                      })
+                    else
+                      {}))distinctBy $.Specialities
+                  })
+                else
+                  {}
+            )distinctBy $})
+          else
+            {}
+      )distinctBy $})
+    else
+      {}))distinctBy $
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="80134c1c-7f68-41ba-bf80-a2b6f3119b46" message="output payload #[payload] ::: messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+	</sub-flow>
+	<sub-flow name="prepare-cls-request" doc:id="c710be7a-d136-4bf4-a34d-a5907ebbb965" >
+		<logger level="INFO" doc:name="prepare cls request" doc:id="72166713-fada-430c-804c-b8349beeba7a" message="prepare cls request. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+		<ee:transform doc:name="set-cls-params" doc:id="b2f1e543-6156-4c36-b4af-e0ace9679c7a" >
+			<ee:variables >
+				<ee:set-variable variableName="tscls.host" ><![CDATA[%dw 2.0
+output application/java  
+---
+vars.varIncomingPayload.target.cls.host]]></ee:set-variable>
+				<ee:set-variable variableName="tscls.creds" ><![CDATA[%dw 2.0
+output application/java
+import * from dw::core::Binaries 
+---
+read ( fromBase64(vars.varIncomingPayload.target.cls.credentials), "application/json")]]></ee:set-variable>
+				<ee:set-variable variableName="tscls.port" ><![CDATA[%dw 2.0
+output application/java  
+---
+vars.varIncomingPayload.target.cls.port]]></ee:set-variable>
+				<ee:set-variable variableName="tscls.basepath" ><![CDATA[%dw 2.0
+output application/java  
+---
+vars.varIncomingPayload.target.cls.basePath]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<set-variable value='#[[] as Array]' doc:name="Initialize ClsRequestList" doc:id="5e1317ca-0ec5-4381-a919-7a42156220ab" variableName="ClsRequestList"/>
+		<foreach doc:name="For Each" doc:id="bdb2e676-c722-4e4a-8aad-06e1bfc0009b" collection="#[vars.InterestSpecList]" >
+			<ee:transform doc:name="Prepare CLS Request Payload" doc:id="e0d42a7e-8c56-4e38-8b16-eea1005088f9" >
+				<ee:variables >
+					<ee:set-variable variableName="varClsRequest" ><![CDATA[%dw 2.0
+output application/json  
+var clsBody = {
+  sourceSystemCode: "SFDCSALES",
+  entityName: "InterestSpecialties",
+  codeFieldName: "InterestSpecialtyCode",
+  targetSystemCode: "RELTIOMDM"
+}
+var codes = payload
+var codesmap = (clsBody ++ {
+  codeValue: codes
+})
+---
+codesmap]]></ee:set-variable>
+				</ee:variables>
+			</ee:transform>
+			<set-payload value="#[vars.ClsRequestList.add(vars.varClsRequest)]" doc:name="Add to ClsRequestList" doc:id="56e7d007-c6bd-4a19-961a-94583539abbe" />
+		</foreach>
+		<ee:transform doc:name="Prepare CLS Request Payload" doc:id="e25c3b4a-a7b6-4c8e-89d8-00d2b8c9f130" >
+			<ee:variables >
+				<ee:set-variable variableName="varClsRequest" ><![CDATA[%dw 2.0
+output application/json  
+var clsBody = {
+  sourceSystemCode: "SFDCSALES",
+  entityName: "InterestSpecialties",
+  codeFieldName: "InterestSpecialtyCode",
+  targetSystemCode: "RELTIOMDM"
+}
+var codes = payload
+var codesmap = (clsBody ++ {
+  codeValue: codes
+})
+---
+codesmap]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<set-payload value="#[vars.ClsRequestList.add(vars.varClsRequest)]" doc:name="addTo Expression" doc:id="30bdb854-4c55-45f8-954d-6bd32bada522" />
+		<set-payload value="#[vars.ClsRequestList]" doc:name="Set Payload" doc:id="fe8caa9f-68e6-456f-b6b1-4ec17a701713" />
+		<ee:transform doc:name="Object to JSON" doc:id="2b038146-ea7f-4dfa-84f1-9ba1b2284877" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0 
+output application/json 
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</sub-flow>
+	<sub-flow name="ClsAPICall-Sub_Flow" doc:id="9af99905-4eb6-46a1-a729-7aa8efbdd0c1" >
+		
+		<logger level="INFO" doc:name="beforeCLS2" doc:id="7e7ee738-8bf4-4f36-b6cd-681620f6e04e" message="roche-mdm-custom-wrapper-upsertEntities-beforeCLS2. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]" />
+		<ee:transform doc:name="set clsAPICallSizeCheck" doc:id="6e137f5b-1ae2-4889-850e-6614fb567c6e" >
+			<ee:variables >
+				<ee:set-variable variableName="clsAPICallSizeCheck" ><![CDATA[%dw 2.0
+output application/java  
+---
+(sizeOf(payload)) > 0]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<choice doc:name="check clsAPICallSizeCheck" doc:id="d7c911a9-bdc9-4f23-b401-996926d6d834" >
+			<when expression="#[vars.clsAPICallSizeCheck]" >
+				<http:request method="POST" doc:name="HttpsClsConfig" doc:id="d84ede51-d3a0-42c8-aa32-c04989b327bf" config-ref="cls_HTTP_Request" path="/code-lookup" >
+					<http:headers ><![CDATA[#[output application/java
+---
+{
+	
+	messageid : vars.messageid,
+	tid : vars.tid,
+	"Content-Type" : "application/json"
+}]]]></http:headers>
+					<http:query-params ><![CDATA[#[output application/java
+---
+{
+	tenantId : vars.tenantId
+}]]]></http:query-params>
+				</http:request>
+				<logger level="INFO" doc:name="afterCLS2" doc:id="26d55b71-042f-4450-812b-baa6a82d0f1d" message="roche-mdm-custom-wrapper-upsertEntities-afterCLS2. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]" />
+				<ee:transform doc:name="set varClsOutput" doc:id="a5ca209b-ae11-49a1-8610-def7020f5948" >
+					<ee:variables >
+						<ee:set-variable variableName="varClsOutput" ><![CDATA[%dw 2.0
+output application/json  
+---
+payload]]></ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+				<ee:transform doc:name="CLSOutputConcat" doc:id="7ad4f9af-8ed0-41b6-889d-b975022935b2" >
+					<ee:variables >
+						<ee:set-variable variableName="varCLSOutputConcat" ><![CDATA[%dw 2.0
+output application/java  
+fun buildLookup(codes) =
+  codes mapObject {
+    (($$)) : $.code
+  }
+var codeLookup = buildLookup(vars.varClsOutput.SFDCSALES.InterestSpecialties.InterestSpecialtyCode)
+var clsCodes = if (vars.varIncomingPayload.entities.entity.Individual.InterestSpecialties == null 
+	or vars.varIncomingPayload.entities.entity.Individual.InterestSpecialties == ""
+)
+  null
+else
+  (flatten((vars.varIncomingPayload.entities[0].entity.Individual.InterestSpecialties splitBy (";")))) map 
+  (codeLookup[$] default $)
+---
+clsCodes]]></ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+			</when>
+			<otherwise >
+				<ee:transform doc:name="Exception and varCLSOutputConcat" doc:id="3d06c5d4-2c8a-4b09-8d1a-519ac07dca2a" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/java  
+---
+null]]></ee:set-payload>
+					</ee:message>
+					<ee:variables >
+						<ee:set-variable variableName="varCLSOutputConcat" ><![CDATA[%dw 2.0
+output application/json  
+---
+if (vars.varIncomingPayload.entities.entity.InterestSpecialties.InterestSpecialtyCode == null 
+	or vars.varIncomingPayload.entities.entity.InterestSpecialties.InterestSpecialtyCode == ""
+)
+  null
+else
+  vars.varIncomingPayload.entities.entity.InterestSpecialties.InterestSpecialtyCode joinBy ";"]]></ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+			</otherwise>
+		</choice>
+	</sub-flow>	
+	<sub-flow name="prepare-mdm-spec-payload" doc:id="f7d043d5-7844-4895-ab7a-e81777c03799" >
+		<ee:transform doc:name="Set tempMdmInterestSpecList" doc:id="bfb48f12-4b66-416c-bfb8-53c11fdea808" >
+			<ee:variables >
+				<ee:set-variable variableName="tempMdmInterestSpecList" ><![CDATA[%dw 2.0
+output application/java  
+---
+if (vars.varIncomingPayload.entities[0].targetEntity.Data.attributes.Specialities == null)
+  []
+else
+  vars.varIncomingPayload.entities[0].targetEntity.Data.attributes.Specialities]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<foreach doc:name="For Each" doc:id="6984741c-e50d-4f37-8efd-5063edf180e1" collection="#[vars.varCLSOutputConcat]" >
+			<ee:transform doc:name="Prepare MDM Interest Spec payload(tempVarMdmInterestSpec)" doc:id="583ec5fa-f0da-4278-801f-8c1ede44ddbc" >
+				<ee:variables >
+					<ee:set-variable variableName="tempVarMdmInterestSpec" ><![CDATA[%dw 2.0
+output application/java  
+---
+{
+  value: {
+    Specialty: [
+      {
+        value: payload
+      }
+    ],
+    Rank: [
+      {
+        value: vars.counter
+      }
+    ],
+    SpecialtyType: [
+      {
+        value: "TEND"
+      }
+    ]
+  }
+}]]></ee:set-variable>
+				</ee:variables>
+			</ee:transform>
+			<set-payload value="#[vars.tempMdmInterestSpecList.add(vars.tempVarMdmInterestSpec)]" doc:name="addTo tempMdmInterestSpecList" doc:id="d3f4a4a3-2e8b-4d8b-9853-7a8516328b4c" />
+		</foreach>
+		<ee:transform doc:name="Prepare MDM Interest Spec payload" doc:id="bfeac37b-6849-4b8a-afbf-529ab9f4c5cc" >
+			<ee:variables >
+				<ee:set-variable variableName="tempVarMdmInterestSpec" ><![CDATA[%dw 2.0
+output application/java  
+---
+{
+  value: {
+    Specialty: [
+      {
+        value: payload
+      }
+    ],
+    Rank: [
+      {
+        value: vars.counter
+      }
+    ],
+    SpecialtyType: [
+      {
+        value: "TEND"
+      }
+    ]
+  }
+}]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<set-payload value="#[vars.tempMdmInterestSpecList.add(vars.tempVarMdmInterestSpec)]" doc:name="addTo tempMdmInterestSpecList" doc:id="024512ac-0b32-4dfb-b7a1-58be87720e4c" />
+		<set-payload value="#[vars.tempMdmInterestSpecList]" doc:name="Set Payload as vars.tempMdmInterestSpecList" doc:id="e53950ff-57cf-4e08-9da2-78b608562ca6" />
+		<ee:transform doc:name="varMdmInterestSpecialty" doc:id="645b99a0-fdc5-4bba-8df2-727c14a42f53" >
+			<ee:variables >
+				<ee:set-variable variableName="varMdmInterestSpecialty" ><![CDATA[%dw 2.0
+output application/json  
+---
+payload]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+	</sub-flow>
+	
+	
+	
+	
+	<sub-flow name="Address-attributes" doc:id="23343a13-9e41-422d-8760-d8e00ea19fc4" >
+		<logger level="INFO" doc:name="Log Master OrgAddrId/IndAddrId" doc:id="be3c3df6-9ef1-4359-b99b-e7e1ec4f570f" message='loger message "Master OrgAddrId/IndAddrId  :: #[vars.MasterOrgId] / #[vars.MasterIndId]" address status #[vars.varAddrStatus]. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]' />
+		<choice doc:name="MasterIndId and MasterOrgId and varAddrStatus" doc:id="0f249481-463e-4d7a-9a9d-8ee5702923d9" >
+			<when expression="#[(vars.MasterIndId == null) and (vars.MasterOrgId == null) and (vars.varAddrStatus == null)]" >
+				<ee:transform doc:name="Insert-Stat-Val" doc:id="cc3ba602-0887-46a6-bf40-f81dab6cc079" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+---
+(payload - "entities") ++ ({
+  entities: payload.entities map (if (not $.entity.Data.attributes.Address.value == null)
+    (($ - "entity") ++ ({
+      entity: ($.entity - "Data") ++ ({
+        Data: ($.entity.Data - "attributes") ++ ({
+          attributes: ($.entity.Data.attributes - "Address") ++ ({
+            Address: [
+              ($.entity.Data.attributes.Address[0] - "value" ++ ({
+                value: ($.entity.Data.attributes.Address[0].value ++ {
+                  ValidationStatus: [
+                    {
+                      value: "VALD"
+                    }
+                  ]
+                } ++ {
+                  Status: [
+                    {
+                      value: "ACTV"
+                    }
+                  ]
+                })
+              }))
+            ]
+          })
+        })
+      })
+    }))
+  else
+    $)
+})]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</when>
+			<when expression="#[(vars.MasterIndId == null) and (vars.MasterOrgId == null) and (vars.varAddrStatus != null)]" >
+				<ee:transform doc:name="Insert-Val" doc:id="200495a0-885c-427c-b2c1-f962aaf1a6ef" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+---
+(payload - "entities") ++ ({
+  entities: payload.entities map (if (not $.entity.Data.attributes.Address.value == null)
+    (($ - "entity") ++ ({
+      entity: ($.entity - "Data") ++ ({
+        Data: ($.entity.Data - "attributes") ++ ({
+          attributes: ($.entity.Data.attributes - "Address") ++ ({
+            Address: [
+              ($.entity.Data.attributes.Address[0] - "value" ++ ({
+                value: ($.entity.Data.attributes.Address[0].value ++ {
+                  ValidationStatus: [
+                    {
+                      value: "VALD"
+                    }
+                  ]
+                })
+              }))
+            ]
+          })
+        })
+      })
+    }))
+  else
+    $)
+})]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</when>
+			<otherwise >
+				<logger level="INFO" doc:name="Status and ValidationStatus not inserted" doc:id="95dbf6eb-f6a2-4506-8450-b43beb058ee7" message="Logger:: Address Default - Status and ValidationStatus not inserted. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]" />
+			</otherwise>
+		</choice>
+	</sub-flow>
+	
+	
+</mule>

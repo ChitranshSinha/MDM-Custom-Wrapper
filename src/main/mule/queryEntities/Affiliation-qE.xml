@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+	<sub-flow name="Affiliation-qE" doc:id="06607599-38f1-4040-b676-82c405707e24" >
+		<logger level="INFO" doc:name="Affiliation-qE-LogicStart" doc:id="c648a35c-c625-4098-ab05-e3939beaaaa6" message="Affiliation-qE-LogicStart. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+		<flow-ref doc:name="AffiliationSpecialtyErsValidation" doc:id="580e224c-eeb8-4a6a-ac12-67107cf725f8" name="AffiliationSpecialtyErsValidation" targetValue="#[vars.fAfflSpecIdentifier]"/>
+		<set-variable value="#[payload]" doc:name="Set fAfflSpecIdentifier" doc:id="4b62e13d-991a-4501-a4c3-3f5950d14322" variableName="fAfflSpecIdentifier"/>
+		<set-payload value="#[vars.fInputPayload]" doc:name="original payload" doc:id="5b75d47b-0e52-4416-9c6f-f6c71dd522dc" />
+		<ee:transform doc:name="AffilationLogic" doc:id="b6873705-5c7b-418d-8d31-eccdf31117b5" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+var entity = payload.entities
+var arrNodeObj = vars.arrNodeObj filter $.ety == "AFFILIATIONS" default []
+var arrFieldsJson = vars.arrFieldsJson filter $.ety == "AFFILIATIONS" default []
+var cfLib = readUrl("classpath://dw/GlobalFunctions.dwl")
+---
+{
+  entityType: payload.entityType,
+  entities: payload.entities map (entity, entityPos) -> {
+    entityId: entity.entityId,
+    (entity: entity.entity mapObject {
+      (($$)) : $
+    } - "AffiliationTypeCode" - "AffPrimaryFlag" - "Specialties" - "AffTitleCode" ++ {
+      AffiliationTypeCode: null,
+      AffPrimaryFlag: (if (entity.sourceEntity.attributes.Primary.value joinBy "" == "true")
+        true
+      else
+        false) default false
+    } ++ {
+      (Specialties: 
+        if ((not (["", null] contains entity.entity.Specialties[0])))
+          [
+            entity.entity.Specialties[0] - "SpecialtyCode" ++ {
+              SpecialtyCode: entity.sourceEntity.attributes.Specialities[0].value.Specialty[0].lookupCode
+            }
+          ]
+        else
+          [
+            {
+              SpecialtyCode: entity.sourceEntity.attributes.Specialities[0].value.Specialty[0].lookupCode
+            } ++ {
+              Rank: 1
+            } ++ {
+              ClientSpecialtyIdentifier: entity.entity.AffiliationMasterIdentifier replace "relations/" with "" ++ "#SPEC#1"
+            } ++ {
+              SpecialtyIdentifier: vars.fAfflSpecIdentifier[(entity.entity.AffiliationMasterIdentifier replace "relations/" with "" ++ "#SPEC#1")]
+            }
+          ]) if entity.sourceEntity.attributes.Specialities[0].value.Specialty[0].lookupCode?
+    } ++ {
+      (AffTitleCode: (flatten([entity.sourceEntity.attributes.Title.lookupCode ]))[0]) if entity.sourceEntity.attributes.Title.lookupCode?,
+    (RCHAffTitleCode: (flatten([entity.sourceEntity.attributes.Title.lookupCode]))) if entity.sourceEntity.attributes.Title.lookupCode?,
+    RchAffiliationTypeCode: (flatten([entity.sourceEntity.attributes.AffiliationTypeCode.lookupCode]))[0],
+    RchAffiliationSubTypeCode: (flatten([entity.sourceEntity.attributes.AffiliationSubtypeCode.lookupCode]))[0],
+      RCHStObTy: (flatten([entity.sourceEntity.startObject."type"]))[0],
+      RCHEdObTy: (flatten([entity.sourceEntity.endObject."type"]))[0],
+      RCHStLbl: (flatten([entity.sourceEntity.startObject."label"]))[0],
+      RCHEdLbl: (flatten([entity.sourceEntity.endObject."label"]))[0],
+      LocalSystemId: p('LocalSystemId'),
+      RCH_AffPrimaryCalc: entity.sourceEntity.attributes.Primary.value[0] default null,
+      ( RCHAffRole : (entity.sourceEntity."type" splitBy  "/")[2]   ) if p('CoreR5Flag')
+    } ++ (cfLib.getNodesandFields("AFFILIATIONS", arrNodeObj, arrFieldsJson, entity.sourceEntity))) if entity.entity?
+  }
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</sub-flow>
+</mule>

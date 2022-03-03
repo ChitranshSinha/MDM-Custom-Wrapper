@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+<http:request-config name="HTTP_Request_configuration" doc:name="HTTP Request configuration" doc:id="88f79516-ea14-4498-a374-6fc3143ae338" basePath="#[vars.fBasePath]" >
+		<http:request-connection protocol="HTTPS" host="#[vars.fHost]" port="#[vars.fPort]" >
+			<http:authentication >
+				<http:basic-authentication username="#[vars.fUserName]" password="#[vars.fPassword]" />
+			</http:authentication>
+		</http:request-connection>
+	</http:request-config>
+	<http:request-config name="HTTP_Request_configuration1" doc:name="HTTP Request configuration" doc:id="11cc44fe-85da-40a3-baf2-62aa74503d7c" basePath="#[vars.'tscls.basepath']" >
+		<http:request-connection protocol="HTTPS" host="#[vars.'tscls.host']" port="#[vars.'tscls.port']" >
+			<http:authentication >
+				<http:basic-authentication username="#[vars.'tscls.creds'.clientId]" password="#[sessionVars.'tscls.creds'.clientSecret]" />
+			</http:authentication>
+		</http:request-connection>
+	</http:request-config>
+	<http:request-config name="MDMSYS_HTTP_Request_Configuration" doc:name="HTTP Request configuration" doc:id="93bcc4ee-037a-4de0-9deb-b4f37d0530bd">
+		<http:request-connection protocol="HTTPS" host="#[vars.fMdmSysHost]" port="#[vars.fMdmSysPort]" >
+			<http:authentication >
+				<http:basic-authentication username="#[vars.fMdmSysUsername]" password="#[vars.fMdmSysPassword]"/>
+			</http:authentication>
+		</http:request-connection>
+	</http:request-config>
+	<flow name="ERS-CommonHTTP-call" doc:id="bbdd271a-8067-4417-b15f-007dee43cf47" >
+		<logger level="INFO" doc:name="Print ERS body" doc:id="648fb482-86e2-432f-8e54-0770bb4afb16" message='messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]. ERS request body: #[vars.fERSBody]'/>
+		<set-payload value="#[vars.fERSBody]" doc:name="Set Payload -flowVars.fERSBody" doc:id="21f82d1f-95cd-4262-9258-d7b152c7867c" />
+		<http:request method="#[vars.ERSmethod]" doc:name="ERS-CommonAPI-call" doc:id="94a86e87-c5e2-48f3-881a-fd74b9a74d98" config-ref="HTTP_Request_configuration" path="#[vars.ERSpath]">
+			<http:query-params ><![CDATA[#[output application/java
+---
+{
+	tenantId : vars.tenantId
+}]]]></http:query-params>
+		</http:request>
+		<error-handler >
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="723925ee-6465-420a-9b7f-d85fbaee8c64" >
+				<set-payload value="#[{}]" doc:name="Set Payload" doc:id="4c45f7e2-b08a-4fd5-95f9-6bd964d3b994" />
+			</on-error-continue>
+		</error-handler>
+	</flow>
+ <flow name="CLS-CommonHTTP-call">
+        <logger message="Calling CLS. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]" level="INFO" doc:name="Calling CLS" />
+
+        <http:request config-ref="HTTP_Request_configuration1" path="/code-lookup" method="POST" doc:name="HttpsClsConfig" requestStreamingMode="NEVER">
+			<http:headers ><![CDATA[#[output application/java
+---
+{
+	"tid" : vars.tid,
+	"Authorization" : vars.authorization,
+	"Content-Type" : "application/json",
+	"messageid" : vars.messageid
+}]]]></http:headers>
+			<http:query-params ><![CDATA[#[output application/java
+---
+{
+	"tenantId" : vars.tenantId
+}]]]></http:query-params>
+
+           
+        </http:request>
+
+        <error-handler>
+            <on-error-continue doc:name="Catch Exception Strategy">
+                <set-payload value="#[{}]" doc:name="Set Payload as {}">
+          </set-payload>
+            </on-error-continue>
+        </error-handler>
+
+    </flow>
+	<flow name="MDM-SYS-SubTypeAndTypeCall" doc:id="be9aa80b-d8d8-4f02-ac56-6efbbe724a2d" >
+		<logger level="INFO" doc:name="MDM-SYS-SubTypeAndType flow has started" doc:id="472f2a7e-f2e8-4d62-a9f2-9e95ef4a25f6" message="MDM-SYS-SubTypeAndType flow has started. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+		<ee:transform doc:name="Set MDM Variables" doc:id="f4a787e9-966c-4bdd-881f-737c66e10ac5" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+---
+{
+  RelationUris: payload..MasterRelationIdentifier default [] map ((($ splitBy "#")[0] splitBy "/")[1]),
+  Config: {
+    credentials: payload.source.systemExternal[0].credentials
+  }
+}]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="fMdmSysHost" ><![CDATA[%dw 2.0
+output application/java  
+---
+payload.source.systemInternal.host default payload.source.systemInternal[0].host
+]]></ee:set-variable>
+				<ee:set-variable variableName="fMdmSysPort" ><![CDATA[%dw 2.0
+output application/java  
+---
+443
+]]></ee:set-variable>
+				<ee:set-variable variableName="fMdmSysAuth" ><![CDATA[%dw 2.0
+output application/java  
+---
+"Basic " ++ payload.source.systemInternal.credentials default payload.source.systemInternal[0].credentials]]></ee:set-variable>
+				<ee:set-variable variableName="fMdmSysUsername" ><![CDATA[%dw 2.0
+output application/java  
+import * from dw::core::Binaries
+
+---
+(read(fromBase64(vars.fInputPayload.source.ers.credentials), "application/json")).clientId
+]]></ee:set-variable>
+				<ee:set-variable variableName="fMdmSysPassword" ><![CDATA[%dw 2.0
+output application/java  
+import * from dw::core::Binaries
+
+---
+(read(fromBase64(vars.fInputPayload.source.ers.credentials), "application/json")).clientSecret]]></ee:set-variable>
+				<ee:set-variable variableName="fMDMsysPath" ><![CDATA[%dw 2.0
+output application/java  
+---
+"api/GetDetails/relations?ovOnly=true"]]></ee:set-variable>
+				<ee:set-variable variableName="smdmCreds" ><![CDATA[%dw 2.0
+output application/java
+---
+payload.source.ers.credentials]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<logger level="INFO" doc:name="log payload" doc:id="ec07a0c0-da01-4e60-a419-d376832e168d" message="#[payload]"/>
+		<ee:transform doc:name="ModifyPayload and accGetRelation" doc:id="3a15456b-8c82-4869-ac7a-d68c036f8524" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json 
+---
+payload.RelationUris map (value, key) -> {
+  RelationUris: [
+    value
+  ],
+  Config: {
+    credentials: payload.Config.credentials
+  }
+}]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="accGetRelation" ><![CDATA[%dw 2.0
+output application/java
+---
+[]]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<foreach doc:name="For Each" doc:id="d5d4547f-05cb-4959-a393-e84a708a804d" >
+			<logger level="INFO" doc:name="RelationUris Logger" doc:id="db66b27e-4a25-42b9-830d-b74b6783d9c7" message='#["$(payload.RelationUris[0]) have intiated the mdm sys call"]'/>
+			<flow-ref doc:name="http-mdm-sys-call-flow" doc:id="2c07f624-83f4-4a59-ac0a-d39a4b4a1cba" name="http-mdm-sys-call-flow"/>
+			<ee:transform doc:name="Aggregate Response" doc:id="6f470220-a2d9-4274-88ea-f2f77c2c5980" >
+				<ee:message >
+				</ee:message>
+				<ee:variables >
+					<ee:set-variable variableName="accGetRelation" ><![CDATA[%dw 2.0
+output application/java  
+---
+flatten((vars.accGetRelation ++ payload))]]></ee:set-variable>
+				</ee:variables>
+			</ee:transform>
+		</foreach>
+	</flow>
+	<flow name="http-mdm-sys-call-flow" doc:id="939c2fa8-fe39-4718-abff-1e4fc9e2aa19" >
+		<logger level="INFO" doc:name="http-mdm-sys-call-flow-started" doc:id="65d4bb3a-2f48-4b2f-b61e-53645a24205f" message="http-mdm-sys-call-flow-started  and body is #[payload]  messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+		<http:request method="POST" doc:name="HTTP-mdm-sys-call" doc:id="5c947c23-ea0d-4a7b-a924-38a93e3a275d" config-ref="MDMSYS_HTTP_Request_Configuration" path="#[vars.fMDMsysPath]">
+			<http:headers ><![CDATA[#[output application/java
+---
+{
+	jobId : vars.jobId,
+	tenantId : vars.tenantId,
+	transactionId : vars.tid
+}]]]></http:headers>
+		</http:request>
+		<logger level="INFO" doc:name="success logger" doc:id="c030c28e-2541-4b31-8a23-4d85d580c144" message="http-mdm-sys-call-flow have completed successfully. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+		<error-handler >
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="088cb299-32f0-4a65-b9e1-e57ce5b07802" >
+				<ee:transform doc:name="set empty array" doc:id="cae9e964-9cd0-4338-ab36-57f1965afcb8" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+[]]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-continue>
+		</error-handler>
+	</flow>
+	
+	
+	
+	
+	
+	
+</mule>

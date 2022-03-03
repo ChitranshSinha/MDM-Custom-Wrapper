@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:spring="http://www.springframework.org/schema/beans" xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd   http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <flow name="merge-cust-flow">
+        <logger message="merge-cust-flow have intiated. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]" level="INFO" doc:name="merge-cust-flow have intiated" />
+
+        <flow-ref name="addingUCINumberAndLocSysId" doc:name="addingUCINumberAndLocSysId" />
+
+        <ee:transform doc:name="transform payload">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json  
+---
+{
+  entityType: payload.entityType,
+  entities: payload.entities map (entity, entityPos) -> {
+    entityId: entity.entityId,
+    (entity: entity.entity mapObject {
+      (($$)) : $
+    }) if entity.entity?
+  }
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+        <logger message="merge-cust-flow have intiated successfully completed successfully. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]" level="INFO" doc:name="merge-cust-flow successfull" />
+
+    </flow>
+
+    <flow name="addingUCINumberAndLocSysId">
+        <logger level="INFO" doc:name="Adding UCINumber and LocSysId" doc:id="ea28db87-fed4-46fa-b50a-29b092eedb6d" message="Adding UCINumber and LocSysId. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+		<ee:transform doc:name="addingUCINumberAndLocSysId">
+            <ee:variables>
+                <ee:set-variable variableName="addingUCINumberAndLocSysId"><![CDATA[%dw 2.0
+output application/java  
+---
+p("addingUCINumberAndLocSysId.flag") default false]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+
+        <choice doc:name="Check addingUCINumberAndLocSysId">
+            <when expression="#[vars.addingUCINumberAndLocSysId]">
+                <flow-ref name="mdmSysEntitesSetVar-subflow" target="MdmSysEntites" doc:name="mdmSysEntitesSetVar-subflow"/>
+                <ee:transform doc:name="add UCINumber and LocalSystemId">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/java  
+fun payloadAddFields(val) =
+  val match {
+    case is Array -> $ map (v1, k1) -> payloadAddFields(v1)
+    case is Object -> $ mapObject (v2, k2) -> {
+      ((k2)) : payloadAddFields(addUCInumber(v2, k2))
+    }
+    else -> $
+  }
+fun addUCInumber(value1, index1) =
+  if ((index1 ~= "MergeWinner"))
+    (value1 ++ {
+      UCINumber: ((vars.MdmSysEntites default []) filter ((($.uri default "") splitBy "/")[1] == (value1.MasterMergeWinnerIdentifier default "" splitBy "#")[0]))[0].attributes.UCINumber[0].value default "",
+      LocalSystemId: p('LocalSystemId')
+    })
+  else
+    value1
+---
+payloadAddFields(payload)]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+            </when>
+            <otherwise>
+                <logger message='"addingUCINumberAndLocSysId.flag" is disabled and these fields will not be added. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]' level="INFO" doc:name="no addition of UCINumber &amp; localSystemId" />
+            </otherwise>
+        </choice>
+
+        <error-handler>
+            <on-error-continue doc:name="Catch Exception Strategy">
+                <set-payload value="#[vars.fInputPayload]" doc:name="fInputPayload" />
+				<logger level="INFO" doc:name="Error in Adding UCINumber and LocSysId" doc:id="3f624d1c-5fcc-4a2f-b41f-3940200fba62" message="Error in Adding UCINumber and LocSysId :: messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+            </on-error-continue>
+        </error-handler>
+
+    </flow>
+
+    <sub-flow name="mdmSysEntitesSetVar-subflow">
+        <ee:transform doc:name="mdmSysVariables">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json  
+---
+{
+  EntityUris: payload..entityId default [] map (($ splitBy "#")[0]),
+  Config: {
+    credentials: payload.source.systemExternal[0].credentials
+  }
+}]]></ee:set-payload>
+            </ee:message>
+            <ee:variables>
+                <ee:set-variable variableName="fMdmSysHost"><![CDATA[%dw 2.0
+output application/java  
+---
+payload.source.systemInternal.host default payload.source.systemInternal[0].host]]></ee:set-variable>
+                <ee:set-variable variableName="fMdmSysPort"><![CDATA[%dw 2.0
+output application/java  
+---
+443]]></ee:set-variable>
+                <ee:set-variable variableName="fMdmSysAuth"><![CDATA[%dw 2.0
+output application/java  
+---
+"Basic " ++ payload.source.systemInternal.credentials default payload.source.systemInternal[0].credentials]]></ee:set-variable>
+                <ee:set-variable variableName="fMdmSysUsername"><![CDATA[%dw 2.0
+output application/java
+import * from dw::core::Binaries  
+---
+(read(fromBase64(payload.source.ers.credentials))).clientId]]></ee:set-variable>
+                <ee:set-variable variableName="fMdmSysPassword"><![CDATA[%dw 2.0
+import * from dw::core::Binaries
+output application/java  
+
+---
+(read(fromBase64(payload.source.ers.credentials))).clientSecret]]></ee:set-variable>
+                <ee:set-variable variableName="fMDMsysPath"><![CDATA[%dw 2.0
+output application/java  
+---
+"api/GetDetails/entities?ovOnly=true"]]></ee:set-variable>
+				<ee:set-variable variableName="smdmCreds" ><![CDATA[%dw 2.0
+output application/java
+var GlbFn = readUrl("classpath://dw/GlobalFunctions.dwl")
+---
+GlbFn.createVarAuth(payload.source.ers.credentials)]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <logger message="messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid] ::: payload: #[payload]" level="INFO" doc:name="payload logger" />
+        <flow-ref name="http-mdm-sys-call-flow" doc:name="http-mdm-sys-call-flow" />
+        <ee:transform doc:name="Java to Json">
+            <ee:message>
+                <ee:set-payload>%dw 2.0
+output application/java  
+---
+payload</ee:set-payload>
+            </ee:message>
+        </ee:transform>
+    </sub-flow>
+
+</mule>

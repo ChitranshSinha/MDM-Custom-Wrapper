@@ -1,0 +1,20 @@
+#%RAML 1.0 SecurityScheme
+
+type: Basic Authentication
+description: Each request must contain the headers necessary for 
+             basic authentication
+describedBy:
+  headers:
+    Authorization:
+      description: Used to send the Base64-encoded "client_id:client_secret"
+                  credentials
+      type: string
+  responses:
+    401:
+      body: 
+        application/json:
+          type: !include /exchange_modules/595cfeca-6cfc-4614-9f68-c1ecc57cd90a.oem.technology-solutions.ts-us/iqvia-error/1.0.1/iqvia-error.raml
+      description: |
+        Unauthorized. Either the provided client_id and client_secret
+        combination is invalid.
+          

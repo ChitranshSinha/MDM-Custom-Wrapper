@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+	<flow name="upset-entitiesFlow_CH" doc:id="5fa05c06-f5cc-4aa0-b589-0aca041fce79" >
+		<logger level="INFO" doc:name="UpsertFlowStart" doc:id="bb43eee8-7e08-45b9-94b7-06aec48b7758" message="roche-mdm-custom-wrapper-upsertEntities-START. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+		<ee:transform doc:name="set multiple variables" doc:id="c6de7227-693b-465e-8352-0617b68feb54" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="varIncomingPayload" ><![CDATA[%dw 2.0
+output application/java
+---
+payload]]></ee:set-variable>
+				<ee:set-variable variableName="varNewDCRFlag" ><![CDATA[%dw 2.0
+output application/java  
+---
+payload.entities[0].entity.DCRFlag]]></ee:set-variable>
+				<ee:set-variable variableName="varCountryCode" ><![CDATA[%dw 2.0
+output application/java  
+---
+vars.varIncomingPayload.entities[0].entity.CountryCode]]></ee:set-variable>
+				<ee:set-variable variableName="varAddrStatus" ><![CDATA[%dw 2.0
+output application/java  
+---
+if (not payload.entities[0].entity.Affiliation == null 
+	and not payload.entities[0].entity.Affiliation.RCHIsPayerAffiliation == null 
+	and payload.entities[0].entity.Affiliation.RCHIsPayerAffiliation == true 
+	and p("ProcessPayerActivity") == "true"
+)
+  true
+else
+  false]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<choice doc:name="Check EntityType" doc:id="8ed3e205-5731-4b98-b19c-8a4dbe9969a2" >
+			<when expression="#[upper(payload.entityDomainCode) == 'DCR' and upper(payload.entityType) == 'CHANGEREQUESTINDIVIDUAL' or (upper(payload.entityType) == 'CHANGEREQUESTAFFILIATION' and payload.entities[0].entity.Individual != null)]">
+				<flow-ref doc:name="Individual-DCR-flow" doc:id="0280f412-5b53-441b-9094-bc41ebfb8db3" name="Individual-DCR-flow"/>
+			</when>
+			<when expression="#[upper(vars.varIncomingPayload.entityDomainCode) == 'DCR' and upper(vars.varIncomingPayload.entityType) == 'CHANGEREQUESTORGANIZATION' or (upper(vars.varIncomingPayload.entityType) == 'CHANGEREQUESTAFFILIATION' and vars.varIncomingPayload.entities[0].entity.Organization != null)]">
+				<flow-ref doc:name="Organization-DCR-Flow" doc:id="108c08d6-7db3-4292-b009-73a1c5706590" name="Organization-DCR-Flow"/>
+			</when>
+			<when expression="#[upper(vars.varIncomingPayload.entityDomainCode) == 'DCR' and upper(vars.varIncomingPayload.entityType) == 'CHANGEREQUESTAFFILIATION' and upper(vars.varIncomingPayload.entities[0].entity.DCRType) == 'AFFILIATION']">
+				<flow-ref doc:name="Affiliation-DCR-Flow" doc:id="2b30d184-2dec-472b-9f1e-06f99d3d3274" name="Affiliation-DCR-Flow"/>
+			</when>
+			<when expression="#[upper(vars.varIncomingPayload.entityDomainCode) == 'SEARCH']">
+				<flow-ref doc:name="SEARCH" doc:id="45e7a6bf-b9cd-460c-8c77-b41b5a5ac1e3" name="Search"/>
+			</when>
+			<otherwise >
+				<flow-ref doc:name="replace-primary-address-plus-add-RequiresAttention" doc:id="bd9e1fc4-00a3-4e73-be63-f89a6750e19b" name="replace-primary-address-plus-add-RequiresAttention"/>
+				<ee:transform doc:name="Other" doc:id="790dfaac-aff1-4035-87be-4e489587d13b" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[output application/json  
+---
+{
+  entityType: payload.entityType,
+  entities: payload.entities map {
+    entityId: $.entityId,
+    entity: $.targetEntity
+  }
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</otherwise>
+		</choice>
+		<ee:transform doc:name="PayerActivityWithChange" doc:id="880137c1-c841-4d45-a139-c36f3510d784" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+---
+if (vars.RCHIsPayer == false)
+  payload
+else
+  (payload - "entities") ++ ({
+    entities: payload.entities map (($ - "entity") ++ ({
+      entity: ($.entity - "Data") ++ ({
+        Data: ($.entity.Data - "attributes") ++ ({
+          attributes: ($.entity.Data.attributes - "activitywith") ++ {
+            (PayerActivityRef: [
+              $.entity.Data.attributes.activitywith[0]
+            ]) if $.entity.Data.attributes.activitywith?
+          }
+        })
+      })
+    }))
+  })]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="UpsertEntities END" doc:id="7654dd69-2e0d-4fc9-9fa3-bacc3e764378" message="roche-mdm-custom-wrapper-upsertEntities-END. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+	</flow>
+</mule>

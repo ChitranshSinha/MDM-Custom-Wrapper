@@ -1,0 +1,8 @@
+#%RAML 1.0 Trait
+headers:
+  messageid:
+    displayName: messageid (message id)
+    description: A messageid uniquely identifies a message coming Anypoint MQ. Having a messageid allows us to fully reconstruct how a particular value ended-up in our dbs, using Splunk or similar system.
+    pattern: ^(\{{0,1}([0-9a-fA-F]){8}-([0-9a-fA-F]){4}-([0-9a-fA-F]){4}-([0-9a-fA-F]){4}-([0-9a-fA-F]){12}\}{0,1})$
+    example: 988a512a-5c03-4002-9bf8-d741b1ca47e8
+    required: false

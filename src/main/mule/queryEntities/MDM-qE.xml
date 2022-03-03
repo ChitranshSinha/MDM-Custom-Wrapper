@@ -1,0 +1,277 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd">
+	<configuration-properties doc:name="Configuration properties" doc:id="a0d72dbd-c853-4929-90b1-df4df7498c0a" file="config\ts-mdm-custom-wrapper.dev.properties" />
+	<flow name="query-EntitiesFlow" doc:id="8bfc361d-caf5-41fe-906c-35365ed92ab9" >
+		<logger level="INFO" doc:name="queryEntities-START" doc:id="7da0b3cf-2de9-449c-8deb-5105a804b003" message="roche-mdm-custom-queryEntities-START. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+		<choice doc:name="Choice - omIDL Check" doc:id="f06047fb-0e65-4ba3-8585-fee083a3fb8c" >
+			<when expression="p('omIDL') == 'true'">
+				<ee:transform doc:name="Transform Message" doc:id="bca7dcbb-8af3-4519-9fae-7f61a3939688" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+var entity = payload.entities
+---
+if ((payload.entityType == "INDIVIDUAL") or (payload.entityType == "Individual"))
+  {
+    entityType: payload.entityType,
+    entities: payload.entities map (entity, entityPos) -> {
+      entityId: entity.entityId,
+      (entity: entity.entity mapObject {
+        (($$)) : $
+      } - "Education") if entity.entity?
+    }
+  }
+else (if ((payload.entityType == "ORGANIZATION") or (payload.entityType == "Organization"))
+  {
+    entityType: payload.entityType,
+    entities: payload.entities map (entity, entityPos) -> {
+      entityId: entity.entityId,
+      (entity: entity.entity mapObject {
+        (($$)) : $
+      }) if entity.entity?
+    }
+  }
+else (if ((payload.entityType == "AFFILIATION") or (payload.entityType == "Affiliation"))
+  {
+    entityType: payload.entityType,
+    entities: payload.entities map (entity, entityPos) -> {
+      entityId: entity.entityId,
+      (entity: entity.entity mapObject {
+        (($$)) : $
+      } - "AffiliationTypeCode" - "AffPrimaryFlag" ++ {
+        AffiliationTypeCode: null,
+        AffPrimaryFlag: (if (entity.sourceEntity.attributes.Primary.value joinBy "" == "true")
+          true
+        else
+          false) default false
+      }) if entity.entity?
+    }
+  }
+else
+  {
+    entityType: payload.entityType,
+    entities: payload.entities map (entity, entityPos) -> {
+      entityId: entity.entityId,
+      (entity: entity.entity mapObject {
+        (($$)) : $
+      }) if entity.entity?
+    }
+  }))]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</when>
+			<otherwise >
+				<flow-ref doc:name="NormalCustomFlow" doc:id="08fb647d-296a-4015-bf86-2ce1fcf8bcdf" name="NormalCustomFlow"/>
+			</otherwise>
+		</choice>
+		<logger level="INFO" doc:name="queryEntities-END" doc:id="15396b77-0472-4621-a943-aeabd5889767" message="roche-mdm-custom-queryEntities-DONE.  messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+	</flow>
+	<sub-flow name="NormalCustomFlow" doc:id="28ad7661-489e-458c-a242-4c07311ac2b3" >
+		<logger level="INFO" doc:name="NormalCustomFlowStart" doc:id="d06bcd4a-646a-4e16-8ebe-223c26390a9f" message="NormalCustomFlowStart. "/>
+		<ee:transform doc:name="fentityDomainCode and RelationNodeValidation" doc:id="02a7ea9d-8c34-40bd-8414-4706a260a125" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="fentityDomainCode" ><![CDATA[%dw 2.0
+output application/java  
+---
+payload.entityDomainCode default "default"]]></ee:set-variable>
+				<ee:set-variable variableName="RelationNodeValidation" ><![CDATA[%dw 2.0
+output application/json  
+---
+(sizeOf(((flatten((payload.entities.entity map (value, key) -> (value.Relations)))) filter not $ == null))) > 0]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<flow-ref doc:name="Get ActiveNodes and ActiveFields" doc:id="16c251a3-9835-4c67-851f-7faf3003049a" name="entityDomainCode_CUST"/>
+		<set-payload value="#[vars.fInputPayload]" doc:name="Original incoming payload" doc:id="65091389-ffd8-4ea0-9190-10864535ecc3" />
+		<choice doc:name="Check Entity Type" doc:id="a71f01f9-5d1d-41eb-820e-51c4782054ae" >
+			<when expression='(upper(payload.entityType) == "INDIVIDUAL") and (upper(payload.entityDomainCode) != "SEARCH")'>
+				<flow-ref doc:name='Individual-qE' doc:id="480b90ef-f40a-410a-993f-b8898ef826fa" name="Individual-qE"/>
+			</when>
+			<when expression='#[upper(payload.entityType) == "AFFILIATION"]'>
+				<flow-ref doc:name="Affiliation-qE" doc:id="44e560f8-fe87-4a9f-8ded-2d0df1507241" name="Affiliation-qE"/>
+			</when>
+			<when expression='#[(upper(payload.entityType) == "ORGANIZATION") and vars.RelationNodeValidation == false and (upper(payload.entityDomainCode) != "SEARCH")]'>
+				<flow-ref doc:name="Organization-qE" doc:id="8f900994-378e-4407-8102-da32207297eb" name="Organization-qE"/>
+			</when>
+			<when expression='#[(upper(payload.entityType) == "ORGANIZATION"  or  upper(payload.entityType) == "COMPANY") and vars.RelationNodeValidation == true and (upper(payload.entityDomainCode) != "SEARCH")]'>
+				<flow-ref doc:name="Relation-qE" doc:id="667a75a9-12d6-4746-b775-9737057c7b5a" name="Relation-qE"/>
+			</when>
+			<when expression='#[(upper(payload.entityType) == "INDIVIDUAL") and (upper(payload.entityDomainCode) == "SEARCH")]'>
+				<logger level="INFO" doc:name="SBC-Individual" doc:id="11cb4134-2796-4896-bd3b-deb57e37e015" message="SBC-IndividualLogicStart. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+				<ee:transform doc:name="SBC_Individual" doc:id="ee76a159-3d4f-4b5d-a142-c9f3655e5737" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  skipNullOn="everywhere"
+fun concatValues(list) =
+  if ((not list == null and ((sizeOf(list)) > 0) and not list.value == null))
+    list[0].value
+  else
+    null
+fun isNotEmptyList(list) =
+  (not list == null and (sizeOf(list)) > 0)
+fun uri(value) =
+  (value default "" splitBy "/")[1]
+fun concatCodes(list) =
+  if ((isNotEmptyList(list)))
+    (if ((not list[0].lookupCode == "" and not list[0].lookupCode == null))
+      list[0].lookupCode
+    else
+      null)
+  else
+    null
+fun verifyTime(dateAndTime) =
+  (if ((dateAndTime == null))
+    null
+  else (if ((dateAndTime contains "24:00:00"))
+    (dateAndTime as String)[0 to 10] ++ "23:59:59" ++ (dateAndTime as String)[19]
+  else (if (((sizeOf(dateAndTime)) == 10))
+    (dateAndTime as String) ++ "T00:00:00Z"
+  else
+    dateAndTime as String)))
+fun ComplianceIdentifier(uri, sourceName, Category, Rank) =
+  [
+    uri,
+    sourceName,
+    Category,
+    Rank
+  ] filter not $ == null joinBy "#"
+fun EducationIdentifier(uri, sourceName, typecode) =
+  [
+    uri,
+    sourceName,
+    typecode
+  ] filter not $ == null joinBy "#"
+var sourceName = ((payload..MasterIndividualIdentifier default [])[0] splitBy "#")[-1]
+fun amsFilter(value) =
+  (value.Identifiers.*value.Type..value default []) contains "AMS"
+---
+{
+  entityType: payload.entityType,
+  entities: payload.entities map (entity, entityPos) -> {
+    entityId: entity.entityId,
+    (entity: 
+      if ((entity.entity.Entities?))
+        {
+          EntityType: entity.entity.EntityType,
+          Entities: entity.entity.Entities default [] map (innerEntity, innerEntityPos) -> {
+            EntityId: innerEntity.EntityId,
+            source: innerEntity.source,
+            Entity: (innerEntity.Entity default []) - "Compliances" - "Education" ++ {
+              RCHCPFId: (entity.sourceEntity.search[0].attributes.Identifiers default [] filter $.value.Type[0].lookupCode == "CPF").value.ID[0].value[0] default null
+            } ++ ({
+              RCHEducation: ((entity.sourceEntity.search[innerEntityPos].attributes.Education filter (not $.value.Type == null)) default [] map (Education, indexOfEducation) -> ({
+                ProfessionalTypeCode: Education.value.DegreeCategory..value default [] joinBy ",",
+                EducationCode: Education.value.Degree..value default [] joinBy ",",
+                Rank: 
+                  if ((not concatValues(Education.value.Rank) == null))
+                    (concatValues(Education.value.Rank))
+                  else
+                    null,
+                EducationIdentifier: EducationIdentifier(uri(entity.sourceEntity.search[innerEntityPos].uri), sourceName, concatValues(Education.value.Type)),
+                ClientEducationIdentifier: EducationIdentifier(uri(entity.sourceEntity.search[innerEntityPos].uri), sourceName, concatValues(Education.value.Type))
+              })) filter (not $.EducationCode == null)
+            } ++ {
+              Compliances: ((entity.sourceEntity.search[innerEntityPos].attributes.License default [] filter (amsFilter(entity.sourceEntity.search[innerEntityPos].attributes) and ($.value.SourceCD[0].value ~= "AMS"))) map (License, indexOfLicense) -> {
+                LicenseTypeCode: concatCodes(License.value.Category),
+                LicenseEid: concatValues(License.value.Number),
+                LicenseTerritoryCode: concatCodes(License.value.State),
+                LicenseRank: 
+                  if ((not concatValues(License.value.Rank) == null and not concatValues(License.value.Rank) == "" and (concatValues(License.value.Rank) matches /^[0-9]*/)))
+                    (concatValues(License.value.Rank) as Number)
+                  else
+                    (indexOfLicense + 1),
+                LicenseeType: concatValues(License.value.Type),
+                LicenseStatusCode: concatCodes(License.value.Status),
+                IssuedDate: verifyTime(concatValues(License.value.IssueDate)),
+                ExpirationDate: verifyTime(concatValues(License.value.ExpirationDate)),
+                LicensePrivilegesText: concatValues(License.value.PrivilegeId),
+                ComplianceIdentifier: ComplianceIdentifier(uri(entity.sourceEntity.search[innerEntityPos].uri default ""), sourceName, (concatCodes(License.value.Category)), (concatValues(License.value.Rank))),
+                ClientComplianceIdentifier: ComplianceIdentifier(uri(entity.sourceEntity.search[innerEntityPos].uri default ""), sourceName, (concatCodes(License.value.Category)), (concatValues(License.value.Rank))),
+                AdjExpirationDate: License.value.AdjExpirationDate..value default [] joinBy ",",
+                SampleEligibility: License.value.SampleEligibility..value default [] joinBy ",",
+                ProfessionalDesignation: License.value.ProfessionalDesignation..value default [] joinBy ","
+              }) filter (not $.LicenseTypeCode == null or not $.LicenseEid == null)
+            } ++ {
+              UCINumber: entity.sourceEntity.search[innerEntityPos].attributes.UCINumber[0].value
+            })
+          }
+        }
+      else
+        (entity.entity mapObject {
+          (($$)) : $
+        })) if entity.entity?
+  }
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</when>
+			<when expression='#[(upper(payload.entityType) == "ORGANIZATION") and (upper(payload.entityDomainCode) == "SEARCH")]'>
+				<logger level="INFO" doc:name="SBC-Organization" doc:id="436e0bef-dead-48e2-b6b4-29b8dc98f8e4" message="SBC-OrganizationLogicStart. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+				<ee:transform doc:name="SBC_Organization" doc:id="92ce2e22-5946-4358-bbd1-0f9abdd10ef4" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  skipNullOn="everywhere"
+---
+{
+  entityType: payload.entityType,
+  entities: payload.entities map (entity, entityPos) -> {
+    entityId: entity.entityId,
+    (entity: 
+      if ((entity.entity.Entities?))
+        {
+          EntityType: entity.entity.EntityType,
+          Entities: entity.entity.Entities map (innerEntity, innerEntityPos) -> {
+            EntityId: innerEntity.EntityId,
+            source: innerEntity.source,
+            Entity: innerEntity.Entity mapObject {
+              (($$)) : $
+            } ++ {
+              RocheCNPJTaxid: (entity.sourceEntity.search[0].attributes.Identifiers filter $.value.Type[0].lookupCode == "CNPJ").value.ID[0].value[0] default null
+            }
+          }
+        }
+      else
+        (entity.entity mapObject {
+          (($$)) : $
+        })) if entity.entity?
+  }
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</when>
+			<when expression='#[(upper(payload.entityType) == "MERGE") ]'>
+				<flow-ref doc:name="merge-cust-flow" doc:id="af22ad1f-3bd2-42a2-9720-3e990f492c16" name="merge-cust-flow"/>
+			</when>
+			<when expression='#[upper(payload.entityType) == "COMPANY"]'>
+				<flow-ref doc:name="Company-qE" doc:id="524048af-046f-4e69-8e0d-7a1154c0fa47" name="Company-qE"/>
+			</when>
+			<otherwise >
+				<ee:transform doc:name="Default" doc:id="57c221c0-aab6-4eef-ae63-b2b3f014d3d1" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+---
+{
+  entityType: payload.entityType,
+  entities: payload.entities map (entity, entityPos) -> {
+    entityId: entity.entityId,
+    (entity: entity.entity mapObject {
+      (($$)) : $
+    }) if entity.entity?
+  }
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<logger level="INFO" doc:name="Default process flow messageid, tenantid, jobid, tid" doc:id="aba32348-3907-49bf-b2b2-3f3e8bf9ae4a" message="Default process flow : messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+			</otherwise>
+		</choice>
+	</sub-flow>
+	
+    	
+</mule>

@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:compatibility="http://www.mulesoft.org/schema/mule/compatibility" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:os="http://www.mulesoft.org/schema/mule/os" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd http://www.mulesoft.org/schema/mule/compatibility http://www.mulesoft.org/schema/mule/compatibility/current/mule-compatibility.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd">
+
+    <os:object-store name="DynamicFields_ObjectStore" entryTtl="${ObjectStoreEntryTtl}" expirationInterval="${ObjectStoreExpInt}" maxEntries="100" doc:name="ObjectStore: Connector" persistent="false" entryTtlUnit="DAYS"/>
+
+    <http:request-config name="cfg-sys-WrapperScript" doc:name="HTTP Request configuration" doc:id="790c7290-9ead-4110-8212-f2cfa3a6ec16"  basePath="/api">
+		<http:request-connection host="#[vars.cfgHost]" port="443" protocol="HTTPS">
+			<http:authentication >
+				<http:basic-authentication username="#[vars.cfgCreds.clientId]" password="#[vars.cfgCreds.clientSecret]" />
+			</http:authentication>
+		</http:request-connection>
+	</http:request-config>
+	<flow name="entityDomainCode_CUST">
+		<choice doc:name="check_entityDomainCode">
+            <when expression='#[upper(vars.fInputPayload.entityDomainCode) == "CUST"  or  upper(vars.fInputPayload.entityDomainCode) == "CUST-SYNC" or upper(vars.fInputPayload.entityDomainCode) == "COMPANY"]'>
+                <ee:transform doc:name="SettingKey values for Fields">
+                    <ee:variables>
+                        <ee:set-variable variableName="objKey"><![CDATA[%dw 2.0
+output application/java  
+---
+"dynamicArrFieldJson"]]></ee:set-variable>
+                        <ee:set-variable variableName="scriptName"><![CDATA[%dw 2.0
+output application/java  
+---
+"ActiveFields"]]></ee:set-variable>
+                        <ee:set-variable variableName="wrapperName"><![CDATA[%dw 2.0
+output application/java  
+---
+"Reltio MDM Custom Wrapper API"]]></ee:set-variable>
+                        <ee:set-variable variableName="cfgCreds"><![CDATA[%dw 2.0
+output application/java  
+import * from dw::core::Binaries
+---
+read ( fromBase64(vars.fInputPayload.source.standard.credentials), "application/json")]]></ee:set-variable>
+                        <ee:set-variable variableName="cfgHost"><![CDATA[%dw 2.0
+output application/java  
+---
+p("CFG.hostname")]]></ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+                <flow-ref name="ObjectStore-dynamicFields2" doc:name="ObjectStore for Fields" />
+                <ee:transform doc:name="arrFieldsJson">
+                    <ee:variables>
+                        <ee:set-variable variableName="arrFieldsJson"><![CDATA[%dw 2.0
+output application/json  
+---
+vars.objOutput filter $.sts == "1" default []]]></ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+                <flow-ref name="Read-arrNodeObj" doc:name="Read-arrNodeObj" />
+            </when>
+            <otherwise>
+                <ee:transform doc:name="set null array" doc:id="53c8f9f9-722c-4752-b106-f41e82a823b6">
+                    <ee:message>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="arrFieldsJson"><![CDATA[%dw 2.0
+output application/json 
+---
+[]]]></ee:set-variable>
+                        <ee:set-variable variableName="arrNodeObj"><![CDATA[%dw 2.0
+output application/json  
+---
+[]]]></ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </otherwise>
+        </choice>
+
+        <error-handler>
+            <on-error-continue doc:name="Catch Exception Strategy">
+                <logger message="wrapperScript call failed setting empty array. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]" level="INFO" doc:name="Logger" />
+                <ee:transform doc:name="Transform Message">
+                    <ee:variables>
+                        <ee:set-variable variableName="arrFieldsJson">%dw 2.0
+output application/json  
+---
+[]</ee:set-variable>
+                        <ee:set-variable variableName="arrNodeObj">%dw 2.0
+output application/json  
+---
+[]</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-continue>
+        </error-handler>
+
+    </flow>
+
+    <flow name="ObjectStore-dynamicFields2">
+        <logger message='CheckingObjectStore for #[vars.scriptName]  Objectstore_dynamicFields. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]' level="INFO" doc:name="ObjectStore" />
+		<os:contains objectStore="DynamicFields_ObjectStore" key="#[vars.objKey]" doc:name="ObjectStore_Contains" />
+		<choice doc:name="ObjectStore_Check">
+            <when expression="#[payload]">
+                <os:retrieve objectStore="DynamicFields_ObjectStore" key="#[vars.objKey]" doc:name="ObjectStore_Retrieve" />
+                <ee:transform doc:name="set objOutput">
+                    <ee:variables>
+                        <ee:set-variable variableName="objOutput"><![CDATA[%dw 2.0
+output application/json  
+---
+//read(payload default [], "application/json")
+payload]]></ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </when>
+            <otherwise>
+                <flow-ref name="wrapperScriptHttpsCallsAPI" doc:name="wrapperScriptHttpsCallsAPI" />
+            </otherwise>
+        </choice>
+
+        <error-handler>
+            <on-error-continue doc:name="Catch Exception Strategy">
+                <flow-ref name="wrapperScriptHttpsCallsAPI" doc:name="wrapperScriptsHttpsCallAPI" />
+            </on-error-continue>
+        </error-handler>
+
+    </flow>
+
+    <flow name="wrapperScriptHttpsCallsAPI">
+		<logger message="wrapperScriptAPI call initiated for #[vars.scriptName]   messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]" level="INFO" doc:name="Logger wrapperScriptAPI call initiated" />
+		<http:request method="GET" doc:name="WrapperScriptApiHttps" doc:id="c27d75ec-9389-4761-b3f6-6f613a072fda" config-ref="cfg-sys-WrapperScript" path="/wrapperScripts">
+			<http:query-params ><![CDATA[#[output application/java
+---
+{
+	tenantId : vars.tenantId,
+	scriptName : vars.scriptName,
+	wrapperName : "Reltio MDM Custom Wrapper API"
+}]]]></http:query-params>
+		</http:request>
+		<ee:transform doc:name="extract json" doc:id="59f070b5-0258-4059-a17f-7b0bc62da509" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="objOutput" ><![CDATA[%dw 2.0
+output application/json
+---
+(read (payload[0].value default [], "application/json")) default [] filter $.sts == "1" ]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<os:store doc:name="Set Value in ObjectStore" doc:id="4393a8d2-77f1-43f6-9803-7a339106dd51" key="#[vars.objKey]" objectStore="DynamicFields_ObjectStore" failOnNullValue="false">
+			<os:value ><![CDATA[#[vars.objOutput]]]></os:value>
+		</os:store>
+		<error-handler >
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="bdbf3060-d10e-4ca9-a2de-3be338ba8a61" >
+				<ee:transform doc:name="set Empty Array" doc:id="cf932cb9-d516-4561-a979-a264e027a702" >
+					<ee:message >
+					</ee:message>
+					<ee:variables >
+						<ee:set-variable variableName="objOutput" ><![CDATA[%dw 2.0
+output application/json
+---
+[]]]></ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+				<os:store doc:name="Set Empty Array in  ObjectStore" doc:id="de9b591d-c2b8-494d-8597-8736b7f8bfd6" key="#[vars.objKey]" failOnNullValue="false" objectStore="DynamicFields_ObjectStore" >
+					<os:value ><![CDATA[#[vars.objOutput]]]></os:value>
+				</os:store>
+			</on-error-continue>
+		</error-handler>
+	</flow>
+
+    <flow name="Read-arrNodeObj">
+		<ee:transform doc:name="SettingKey values for Node">
+            <ee:variables>
+                <ee:set-variable variableName="objKey"><![CDATA[%dw 2.0
+output application/java  
+---
+"dynamicArrNodeJson"]]></ee:set-variable>
+                <ee:set-variable variableName="scriptName"><![CDATA[%dw 2.0
+output application/java  
+---
+"ActiveNodes"]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+
+        <flow-ref name="ObjectStore-dynamicFields2" doc:name="ObjectStore for Node" />
+
+        <ee:transform doc:name="setting arrNodeObj">
+            <ee:variables>
+                <ee:set-variable variableName="arrNodeObj"><![CDATA[%dw 2.0
+output application/json  
+---
+vars.objOutput filter $.sts == "1" default []]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+
+        <error-handler>
+            <on-error-continue doc:name="Catch Exception Strategy Node">
+                <ee:transform doc:name="setting Null Array for Node">
+                    <ee:variables>
+                        <ee:set-variable variableName="arrNodeObj">%dw 2.0
+output application/json  
+---
+[]</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-continue>
+        </error-handler>
+
+    </flow>
+
+</mule>

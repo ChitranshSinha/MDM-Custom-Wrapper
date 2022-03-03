@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:os="http://www.mulesoft.org/schema/mule/os" xmlns:tls="http://www.mulesoft.org/schema/mule/tls" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd 
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/tls http://www.mulesoft.org/schema/mule/tls/current/mule-tls.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd">
+    <http:listener-config name="ts-mdm-custom-wrapper-httpListenerConfig">
+        <http:listener-connection host="0.0.0.0" port="${https.port}" protocol="HTTPS">
+			<tls:context >
+				<tls:key-store type="jks" path="localhost-keystore.jks" alias="${https.alias}" keyPassword="${https.keyPassword}" password="${https.keyStorePassword}" />
+			</tls:context>
+		</http:listener-connection>
+    </http:listener-config>
+    <apikit:config name="ts-mdm-custom-wrapper-config" api="ts-mdm-custom-wrapper.raml" outboundHeadersMapName="outboundHeaders" httpStatusVarName="httpStatus" />
+    <configuration-properties doc:name="Configuration properties" doc:id="d3e3bda0-d60b-46bb-bcd4-d4cd1958f3c5" file="config\ts-mdm-custom-wrapper.dev.properties" />
+	<flow name="ts-mdm-custom-wrapper-main">
+        <http:listener config-ref="ts-mdm-custom-wrapper-httpListenerConfig" path="/api/*">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:headers>#[vars.outboundHeaders default {}]</http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+                <http:headers>#[vars.outboundHeaders default {}]</http:headers>
+            </http:error-response>
+        </http:listener>
+        <logger level="INFO" doc:name="MDM-Custom-Wrapper-Start and Payload" doc:id="5e5d5e9b-3131-4e13-b371-0bbe21a6da38" message="MDM-Custom-Wrapper-Start  and incoming payload #[payload]"/>
+		<flow-ref doc:name="capture-ids" doc:id="bf147618-c7f1-443f-9202-1585eea3734f" name="capture-ids"/>
+		<choice doc:name="Choice_reset_cache" doc:id="fbcff183-008a-4fd6-96fc-504d17f0d6d6" >
+			<when expression="#[lower(vars.resetCache) == 'yes']">
+				<ee:transform doc:name="reset Cache message" doc:id="6df23040-f918-49c7-9a04-252d6b8e27e8" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+---
+{
+  message: "Cache reset was successful"
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</when>
+			<otherwise >
+				<apikit:router config-ref="ts-mdm-custom-wrapper-config" />
+			</otherwise>
+		</choice>
+        <error-handler>
+            <on-error-propagate type="APIKIT:BAD_REQUEST">
+                <ee:transform xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{message: "Bad request"}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">400</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate type="APIKIT:NOT_FOUND">
+                <ee:transform xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{message: "Resource not found"}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">404</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate type="APIKIT:METHOD_NOT_ALLOWED">
+                <ee:transform xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{message: "Method not allowed"}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">405</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate type="APIKIT:NOT_ACCEPTABLE">
+                <ee:transform xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{message: "Not acceptable"}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">406</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate type="APIKIT:UNSUPPORTED_MEDIA_TYPE">
+                <ee:transform xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{message: "Unsupported media type"}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">415</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate type="APIKIT:NOT_IMPLEMENTED">
+                <ee:transform xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{message: "Not Implemented"}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">501</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+        </error-handler>
+    </flow>
+    <flow name="ts-mdm-custom-wrapper-console">
+        <http:listener config-ref="ts-mdm-custom-wrapper-httpListenerConfig" path="/console/*">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:headers>#[vars.outboundHeaders default {}]</http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+                <http:headers>#[vars.outboundHeaders default {}]</http:headers>
+            </http:error-response>
+        </http:listener>
+        <apikit:console config-ref="ts-mdm-custom-wrapper-config" />
+        <error-handler>
+            <on-error-propagate type="APIKIT:NOT_FOUND">
+                <ee:transform xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{message: "Resource not found"}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">404</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+        </error-handler>
+    </flow>
+    <flow name="post:\queryEntities:application\json:ts-mdm-custom-wrapper-config">
+		<flow-ref doc:name="query-EntitiesFlow" doc:id="fceb62c3-03c2-4503-b391-1c61ecaaf4ce" name="query-EntitiesFlow"/>
+    </flow>
+    <sub-flow name="capture-ids" doc:id="565e2911-daf7-4118-beab-1ea6b6028445" >
+		<ee:transform doc:name="Capture_All_Id's" doc:id="0a291977-19ab-48b4-b6f4-17162bfc5c35" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="inboundIdlVar" ><![CDATA[%dw 2.0
+output application/java
+---
+attributes]]></ee:set-variable>
+				<ee:set-variable variableName="messageId" ><![CDATA[%dw 2.0
+output application/java
+---
+if(attributes.headers.messageid != null) attributes.headers.messageid
+else correlationId]]></ee:set-variable>
+				<ee:set-variable variableName="tenantId" ><![CDATA[%dw 2.0
+output application/java
+---
+if(attributes.queryParams.tenantId != null) 
+	attributes.queryParams.tenantId 
+else 
+     p('file.tenantId')]]></ee:set-variable>
+				<ee:set-variable variableName="jobId" ><![CDATA[%dw 2.0
+output application/java
+---
+if (attributes.headers.jobid == "" or attributes.headers.jobid == null) correlationId else attributes.headers.jobid]]></ee:set-variable>
+				<ee:set-variable variableName="resetCache" ><![CDATA[%dw 2.0
+output application/java
+---
+if (attributes.headers.resetCache != null) attributes.headers.resetCache else 'no']]></ee:set-variable>
+				<ee:set-variable variableName="tid" ><![CDATA[%dw 2.0
+output application/java
+---
+if (attributes.headers.tid == "" or attributes.headers.tid == null) correlationId else attributes.headers.tid]]></ee:set-variable>
+				<ee:set-variable variableName="fInputPayload" ><![CDATA[%dw 2.0
+output application/java
+---
+payload]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<logger level="INFO" doc:name="Log tid,jobid,tenantId,messageid" doc:id="b94013cc-ae21-443a-a2cb-02456435e424" message="messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+		<flow-ref doc:name="resetCache" doc:id="590c72bc-ed14-4bd7-b9c7-8ada2953f3cb" name="resetCache"/>
+	</sub-flow>
+	<flow name="post:\upsertEntities:application\json:ts-mdm-custom-wrapper-config">
+		<flow-ref doc:name="upsert-entitiesFlow" doc:id="ae56d55b-f4e6-4db7-80d3-2e8ae98762fd" name="upset-entitiesFlow_CH"/>
+    </flow>
+    <flow name="resetCache">
+        <choice doc:name="check resetCache">
+            <when expression="#[lower(vars.resetCache) == 'yes']">
+				<os:clear doc:name="Clear" doc:id="a6b0e710-de5a-4d8a-9905-40948d0109ad" objectStore="DynamicFields_ObjectStore"/>
+				<set-payload value="#['']" doc:name="Set Payload" />
+            </when>
+            <otherwise>
+                <logger level="INFO" doc:name="vars.resetCache is No" message="vars.resetCache is No. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+            </otherwise>
+        </choice>
+
+        <error-handler>
+            <on-error-continue doc:name="Catch Exception Strategy">
+                <logger message="Clear cache operation have failed" level="INFO" doc:name="Clear cache operation have failed" />
+            </on-error-continue>
+        </error-handler>
+
+    </flow>
+    
+    
+</mule>

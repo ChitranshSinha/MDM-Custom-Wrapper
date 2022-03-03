@@ -1,0 +1,537 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+	<sub-flow name="Organization-DCR-Flow" doc:id="02c7318a-9f3a-4e28-9efc-eebddc447ac2" >
+		<logger level="INFO" doc:name="Organizationl-DCR-Flow" doc:id="f781d807-e894-4913-991f-ceb7ed7396bf" message="Organizationl-DCR Logic Start. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+		<ee:transform doc:name="IsActiveAddressNode" doc:id="513e5fa8-647e-4a86-a923-68ae83d7e61d" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java  
+fun payloadTraverse(value) =
+  (value match {
+    case is Array -> $ map (v1, k1) -> (payloadTraverse(v1))
+    case is Object -> $ mapObject (v2, k2) -> {
+      ((k2)) : 
+        if ((k2 ~= "attributes"))
+          payloadTraverse(addAddressField(v2))
+        else
+          payloadTraverse(v2)
+    }
+    else -> $
+  })
+fun addAddressField(value) =
+  (value default [] ++ {
+    Address: [
+      {
+        refRelation: {
+          crosswalks: [
+            {
+              "type": "configuration/sources/" ++ ((vars.varIncomingPayload.entities[0].entity.Organization.OrganizationAddresses[0].MasterOrganizationAddressIdentifier default "default#default") splitBy "#")[-1],
+              value: vars.varIncomingPayload.entities[0].entity.SourceAccountAddressIdentifier
+            }
+          ],
+          objectURI: ((vars.varIncomingPayload.entities[0].entity.Organization.OrganizationAddresses[0].MasterOrganizationAddressIdentifier default "default#default") splitBy "#")[0]
+        },
+        refEntity: {
+          objectURI: "entities/" ++ ((vars.varIncomingPayload.entities[0].entity.Organization.OrganizationAddresses[0].Address.MasterAddressIdentifier default "default#default") splitBy "#")[0]
+        }
+      }
+    ]
+  })
+---
+if ((((sizeOf(vars.varIncomingPayload.entities[0].entity.Organization.OrganizationAddresses) default 0 ) > 0) and (vars.varIncomingPayload.entities.targetEntity[0].Data.attributes.Address?)))
+  vars.varIncomingPayload
+else
+  payloadTraverse(vars.varIncomingPayload)]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="varIncomingPayload" ><![CDATA[%dw 2.0
+output application/java  
+fun payloadTraverse(value) =
+  (value match {
+    case is Array -> $ map (v1, k1) -> (payloadTraverse(v1))
+    case is Object -> $ mapObject (v2, k2) -> {
+      ((k2)) : 
+        if ((k2 ~= "attributes"))
+          payloadTraverse(addAddressField(v2))
+        else
+          payloadTraverse(v2)
+    }
+    else -> $
+  })
+fun addAddressField(value) =
+  (value default [] ++ {
+    Address: [
+      {
+        refRelation: {
+          crosswalks: [
+            {
+              "type": "configuration/sources/" ++ ((vars.varIncomingPayload.entities[0].entity.Organization.OrganizationAddresses[0].MasterOrganizationAddressIdentifier default "default#default") splitBy "#")[-1],
+              value: vars.varIncomingPayload.entities[0].entity.SourceAccountAddressIdentifier
+            }
+          ],
+          objectURI: ((vars.varIncomingPayload.entities[0].entity.Organization.OrganizationAddresses[0].MasterOrganizationAddressIdentifier default "default#default") splitBy "#")[0]
+        },
+        refEntity: {
+          objectURI: "entities/" ++ ((vars.varIncomingPayload.entities[0].entity.Organization.OrganizationAddresses[0].Address.MasterAddressIdentifier default "default#default") splitBy "#")[0]
+        }
+      }
+    ]
+  })
+---
+if ((((sizeOf(vars.varIncomingPayload.entities[0].entity.Organization.OrganizationAddresses) default 0 ) > 0) and (vars.varIncomingPayload.entities.targetEntity[0].Data.attributes.Address?)))
+  vars.varIncomingPayload
+else
+  payloadTraverse(vars.varIncomingPayload)]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<flow-ref doc:name="upsert-entitiesSub_Flow-Organization" doc:id="0a8ff3b5-12db-4bac-9b66-518a5065f1a1" name="upsert-entitiesSub_Flow-Organization"/>
+		<ee:transform doc:name="modify payload" doc:id="ba209e5c-206c-416d-b47d-265036b57264" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+---
+(payload - "entities") ++ ({
+  entities: payload.entities map (if (not $.entity.Data.attributes == null)
+    (($ - "entity") ++ ({
+      entity: ($.entity - "Data") ++ ({
+        Data: ($.entity.Data - "attributes") ++ ({
+          attributes: ($.entity.Data.attributes ++ {
+            (CorpParentName: [
+              {
+                value: 
+                  if (vars.varIncomingPayload.entities..RCHCustomerGroup == null)
+                    null
+                  else
+                    vars.varIncomingPayload.entities..RCHCustomerGroup joinBy ""
+              }
+            ]) if not vars.varIncomingPayload.entities..RCHCustomerGroup == null,
+            (ActTypeCode: [
+              {
+                value: 
+                  if (vars.varIncomingPayload.entities..RCHTeachingResearch == null)
+                    null
+                  else
+                    vars.varIncomingPayload.entities..RCHTeachingResearch joinBy ""
+              }
+            ]) if not vars.varIncomingPayload.entities..RCHTeachingResearch == null,
+            (PatientSource: [
+              {
+                value: 
+                  if (vars.varIncomingPayload.entities..RCHClientFlowCode == null)
+                    null
+                  else
+                    vars.varIncomingPayload.entities..RCHClientFlowCode joinBy ""
+              }
+            ]) if not vars.varIncomingPayload.entities..RCHClientFlowCode == null,
+            (PatientProfile: [
+              {
+                value: 
+                  if (vars.varIncomingPayload.entities..RCHPatientProfile == null)
+                    null
+                  else
+                    vars.varIncomingPayload.entities..RCHPatientProfile joinBy ""
+              }
+            ]) if not vars.varIncomingPayload.entities..RCHPatientProfile == null
+          })
+        })
+      })
+    }))
+  else
+    $)
+})]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<ee:transform doc:name="payload &amp; varMasterAddressIdentifierOrg &amp; varAddressStatusCheckOrg" doc:id="a936467d-c010-413a-8d05-cc4ac5f431c8" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+---
+(payload - "entities") ++ ({
+  entities: payload.entities map (if (not $.entity.Data.attributes == null)
+    (($ - "entity") ++ ({
+      entity: ($.entity - "Data") ++ ({
+        Data: ($.entity.Data - "attributes") ++ ({
+          attributes: ($.entity.Data.attributes - "Name") ++ {
+            (Name: [
+              {
+                value: 
+                  if (vars.varIncomingPayload.entities..RCHWkpName == null)
+                    $.entity.Data.attributes.Name.value[0]
+                  else
+                    vars.varIncomingPayload.entities..RCHWkpName joinBy ""
+              }
+            ]) if ((not $.entity.Data.attributes.Name.value[0] == null) or (not vars.varIncomingPayload.entities..RCHWkpName == null)),
+            (Identifiers: [
+              {
+                value: {
+                  Type: [
+                    {
+                      value: 
+                        if (vars.varIncomingPayload.entities.entity.Organization.RocheCNPJTaxid == null)
+                          null
+                        else
+                          "CNPJ"
+                    }
+                  ],
+                  ID: [
+                    {
+                      value: 
+                        if (vars.varIncomingPayload.entities.entity.Organization.RocheCNPJTaxid == null)
+                          null
+                        else
+                          vars.varIncomingPayload.entities.entity.Organization.RocheCNPJTaxid[0] joinBy ""
+                    }
+                  ]
+                }
+              }
+            ]) if not vars.varIncomingPayload.entities.entity.Organization.RocheCNPJTaxid == null
+          }
+        })
+      })
+    }))
+  else
+    $)
+})]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="varMasterAddressIdentifierOrg" ><![CDATA[%dw 2.0
+output application/java  
+---
+if (((vars.varIncomingPayload.entities..entity.Organization.OrganizationAddresses..MasterOrganizationAddressIdentifier == null) or (vars.varIncomingPayload.entities..entity.Organization.OrganizationAddresses..MasterOrganizationAddressIdentifier joinBy "") == null or (vars.varIncomingPayload.entities..entity.Organization.OrganizationAddresses..MasterOrganizationAddressIdentifier joinBy "") == ""))
+  0
+else
+  1
+]]></ee:set-variable>
+				<ee:set-variable variableName="varAddressStatusCheckOrg" ><![CDATA[%dw 2.0
+output application/json  
+---
+if (((vars.varIncomingPayload.entities..entity.Organization.OrganizationAddresses..RCHAccountAddressStatus == null) or (vars.varIncomingPayload.entities..entity.Organization.OrganizationAddresses..RCHAccountAddressStatus joinBy "") == null or (vars.varIncomingPayload.entities..entity.Organization.OrganizationAddresses..RCHAccountAddressStatus joinBy "") == ""))
+  0
+else
+  1]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<choice doc:name="check AddressStatusCheckOrg and MasterAddressIdentifierOrg" doc:id="01b3f9bf-db8c-4998-b47f-fa339265cb83" >
+			<when expression="#[vars.varAddressStatusCheckOrg == 1 and vars.varMasterAddressIdentifierOrg == 1]" >
+						<logger level="INFO" doc:name="AddingAddressStatusCodeOrg" doc:id="7077e56c-cc84-4f9a-9f45-b8d363b6f411" message="AddingAddressStatusCodeOrg. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]" />
+						<ee:transform doc:name="setVarAddressStatus" doc:id="dd54153b-58a6-46cc-8bf6-2750b0cfdeff" >
+							<ee:variables >
+								<ee:set-variable variableName="varOrgAddressStatus" ><![CDATA[%dw 2.0
+output application/java  
+---
+vars.varIncomingPayload.entities[0].entity.Organization.OrganizationAddresses[0].RCHAccountAddressStatus]]></ee:set-variable>
+								<ee:set-variable variableName="varPayload" ><![CDATA[%dw 2.0
+output application/java  
+---
+payload]]></ee:set-variable>
+							</ee:variables>
+						</ee:transform>
+						<ee:transform doc:name="set-cls-params" doc:id="0728ce80-ff4c-4202-9612-abdcf8481148" >
+							<ee:variables >
+								<ee:set-variable variableName="tscls.host" ><![CDATA[%dw 2.0
+output application/java  
+---
+vars.varIncomingPayload.target.cls.host]]></ee:set-variable>
+								<ee:set-variable variableName="tscls.creds" ><![CDATA[%dw 2.0
+output application/java
+import * from dw::core::Binaries 
+---
+read ( fromBase64(vars.varIncomingPayload.target.cls.credentials), "application/json")]]></ee:set-variable>
+								<ee:set-variable variableName="tscls.port" ><![CDATA[%dw 2.0
+output application/java  
+---
+vars.varIncomingPayload.target.cls.port]]></ee:set-variable>
+								<ee:set-variable variableName="tscls.basepath" ><![CDATA[%dw 2.0
+output application/java  
+---
+vars.varIncomingPayload.target.cls.basePath]]></ee:set-variable>
+							</ee:variables>
+						</ee:transform>
+						<ee:transform doc:name="prepare-cls-request-OrgAdressStatus" doc:id="c517ed17-df79-400c-8573-263677626943" >
+							<ee:variables >
+								<ee:set-variable variableName="ClsOrgReqAddressStatus" ><![CDATA[%dw 2.0
+output application/json  
+var clsBody = {
+  sourceSystemCode: "SFDCSALES",
+  entityName: "OrganizationAddresses",
+  codeFieldName: "AccountAddressStatus",
+  targetSystemCode: "RELTIOMDM"
+}
+var codes = vars.varOrgAddressStatus
+var codesmap = (clsBody ++ {
+  codeValue: codes
+})
+---
+[
+  codesmap
+]]]></ee:set-variable>
+							</ee:variables>
+						</ee:transform>
+						<set-payload value="#[vars.ClsOrgReqAddressStatus]" doc:name="ClsOrgReqAddressStatus" doc:id="ac2be32c-de0f-42b1-8d83-ba97565da843" />
+						<http:request method="POST" doc:name="HttpsClsConfig" doc:id="071b6d59-556c-4ce9-acab-12dc7bc6e3fe" config-ref="cls_HTTP_Request" path="/code-lookup" requestStreamingMode="NEVER">
+							<http:headers ><![CDATA[#[output application/java
+---
+{
+    "tid" : vars.tid,
+    "Authorization" : vars.authroization,
+    "Content-Type" : "application/json",
+    "messageid" : vars.messageid
+}]]]></http:headers>
+							<http:query-params><![CDATA[#[output application/java
+---
+{
+	tenantId : vars.tenantId
+}]]]></http:query-params>
+						</http:request>
+						<ee:transform doc:name="Extract varAddressStatusCode" doc:id="c7a0037b-a212-4954-9daa-a0a3ce5623f5" >
+							<ee:variables >
+								<ee:set-variable variableName="varAddressStatusCode" ><![CDATA[%dw 2.0
+output application/java  
+---
+payload.SFDCSALES.OrganizationAddresses.AccountAddressStatus default {} pluck (v1, k1) -> {
+  value: v1.code
+}]]></ee:set-variable>
+							</ee:variables>
+						</ee:transform>
+						<ee:transform doc:name="OrganizationAddressStatus" doc:id="ee932fa9-503c-4604-b029-ffddcb7e767d" >
+							<ee:message >
+								<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+---
+((vars.varPayload - "entities") ++ ({
+  entities: vars.varPayload.entities map (if (not $.entity.Data.attributes == null)
+    (($ - "entity") ++ ({
+      entity: ($.entity - "Data") ++ ({
+        Data: ($.entity.Data - "attributes") ++ ({
+          attributes: ($.entity.Data.attributes - "Address") ++ ({
+            Address: $.entity.Data.attributes.Address map ($ - "value" ++ {
+              value: $.value default {} ++ {
+                ValidationStatus: [
+                  {
+                    value: 
+                      if (vars.varAddressStatusCode.value[0] == "ACTV")
+                        "VALD"
+                      else if (vars.varAddressStatusCode.value[0] == "INAC")
+                        "INVL"
+                      else
+                        null
+                  }
+                ]
+              } ++ {
+                Status: [
+                  {
+                    value: vars.varAddressStatusCode.value[0]
+                  }
+                ]
+              }
+            })
+          })
+        })
+      })
+    }))
+  else
+    $)
+}))]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+						<logger level="INFO" doc:name="final payload" doc:id="624325b9-9a34-40de-b4c5-9bfa85b6b8e9" message='#["Final Payload :: $(payload)"]' />
+					</when>
+			<otherwise >
+				<logger level="INFO" doc:name="no Address Status" doc:id="ef2ac983-90fe-4789-a509-427fbafffe9d" message="UpsertFlow ends with no Address Status. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+			</otherwise>
+
+		</choice>
+	</sub-flow>
+	<sub-flow name="upsert-entitiesSub_Flow-Organization" doc:id="c8f9fa6a-a7a8-48e6-a904-6c99526fa298" >
+		<ee:transform doc:name="MasterOrgId &amp; OrgRecordTypeId" doc:id="c1927c12-550c-423f-b814-4439f63fc07d" >
+			<ee:variables >
+				<ee:set-variable variableName="MasterOrgId" ><![CDATA[%dw 2.0
+output application/java  
+---
+vars.varIncomingPayload.entities[0].entity.Organization.OrganizationAddresses[0].MasterOrganizationAddressIdentifier default null]]></ee:set-variable>
+				<ee:set-variable variableName="OrgRecordTypeId" ><![CDATA[%dw 2.0
+output application/java  
+---
+vars.varIncomingPayload.entities[0].entity.Organization.removedCustomerTypeCode default null]]></ee:set-variable>
+			
+</ee:variables>
+		</ee:transform>
+		<choice doc:name="Check OrgRecordTypeId" doc:id="b67ceaf0-33f3-4482-b55c-44c1ab3d0063" >
+			<when expression="#[vars.OrgRecordTypeId != null and vars.OrgRecordTypeId != '']" >
+				<set-payload value="#[vars.OrgRecordTypeId]" doc:name="OrgRecordTypeId" doc:id="76bccb60-93b0-412c-a152-698b1e50a375" />
+				<ee:transform doc:name="make-cls-body and set-cls-params" doc:id="20396aab-3163-45af-9d10-38c00f5dcd17" >
+					<ee:variables >
+						<ee:set-variable variableName="tscls.host" ><![CDATA[%dw 2.0
+output application/java  
+---
+vars.varIncomingPayload.target.cls.host]]></ee:set-variable>
+						<ee:set-variable variableName="tscls.creds" ><![CDATA[%dw 2.0
+output application/java
+import * from dw::core::Binaries 
+---
+read ( fromBase64(vars.varIncomingPayload.target.cls.credentials), "application/json")]]></ee:set-variable>
+						<ee:set-variable variableName="tscls.port" ><![CDATA[%dw 2.0
+output application/java  
+---
+vars.varIncomingPayload.target.cls.port]]></ee:set-variable>
+						<ee:set-variable variableName="tscls.basepath" ><![CDATA[%dw 2.0
+output application/java  
+---
+vars.varIncomingPayload.target.cls.basePath]]></ee:set-variable>
+						<ee:set-variable variableName="ClsRequestOrgType" ><![CDATA[%dw 2.0
+output application/json  
+var clsBody = {
+  sourceSystemCode: "SFDCSALES",
+  entityName: "Account",
+  codeFieldName: "RocheCategoryTypeCode",
+  targetSystemCode: "RELTIOMDM"
+}
+var codes = payload
+var codesmap = (clsBody ++ {
+  codeValue: codes
+})
+---
+[ codesmap]]]></ee:set-variable>
+					
+</ee:variables>
+				</ee:transform>
+				<flow-ref doc:name="ClsAPICall-OrgTypeCode" doc:id="d65688c5-aca3-4cd7-92a3-5f71c8cc434c" name="ClsAPICall-OrgTypeCode" />
+				<ee:transform doc:name="prepare-orgTypeCode-payload" doc:id="8ebb1844-84b0-4449-aaff-30986de57c97" >
+					<ee:variables >
+						<ee:set-variable variableName="MdmOrgTypeCode" ><![CDATA[%dw 2.0
+output application/json  
+---
+[
+  {
+    value: vars.varClsOutputCode
+  }
+]]]></ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+				<set-payload value="#[vars.varIncomingPayload]" doc:name="varIncomingPayload" doc:id="553b6efb-dbd1-49c4-9091-c099ca1baa3c" />
+				<flow-ref doc:name="replace-primary-address-plus-add-RequiresAttention - Flow Reference" doc:id="b6027d22-e114-426c-b511-6f8409ef4ebe" name="replace-primary-address-plus-add-RequiresAttention" />
+				<ee:transform doc:name="Transform Message-Org" doc:id="d4191396-05d7-4af7-888a-d9975b02bbfc" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+---
+{
+  entityType: payload.entityType,
+  entities: payload.entities map (entity, entityPos) -> {
+    entityId: entity.entityId,
+    entity: entity.targetEntity mapObject (targetEntity, targetEntityPos) -> {
+      ((targetEntityPos)) : 
+        if (targetEntityPos ~= "Data")
+          (targetEntity mapObject (data, dataPos) -> {
+            ((dataPos)) : 
+              if (dataPos ~= "attributes")
+                (data mapObject (attributes, attributesPos) -> {
+                  ((attributesPos)) : (attributes)
+                } ++ {
+                  (TypeCode: vars.MdmOrgTypeCode) if not vars.MdmOrgTypeCode == null or not vars.MdmOrgTypeCode == ""
+                })
+              else
+                data
+          })
+        else
+          targetEntity
+    }
+  }
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<flow-ref doc:name="Address-attributes" doc:id="6cbe89c4-d0fd-4673-a8a9-7ef6219b4681" name="Address-attributes" />
+				<logger level="INFO" doc:name="HCO-DCR-processing-with-TypeCode" doc:id="9a90decc-28ac-4d58-94de-6dc042d76a40" message="HCO-DCR-processing-with-TypeCode. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]" />
+			</when>
+			<otherwise >
+				<logger level="INFO" doc:name="HCO-DCR-processing-default" doc:id="277742f7-a5f6-4006-8667-4a7fa035eb29" message="HCO-DCR-processing-default. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]" />
+				<flow-ref doc:name="replace-primary-address-plus-add-RequiresAttention - Flow Reference" doc:id="96fc41a7-b57c-4a6c-94da-97a870df5dca" name="replace-primary-address-plus-add-RequiresAttention" />
+				<ee:transform doc:name="Transform Message-Org-without-TypeCode" doc:id="806de2ce-b378-4bd8-ae19-c96a91630cf4" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+---
+{
+  entityType: payload.entityType,
+  entities: payload.entities map (entity, entityPos) -> {
+    entityId: entity.entityId,
+    entity: entity.targetEntity mapObject (targetEntity, targetEntityPos) -> {
+      ((targetEntityPos)) : 
+        if (targetEntityPos ~= "Data")
+          (targetEntity mapObject (data, dataPos) -> {
+            ((dataPos)) : 
+              if (dataPos ~= "attributes")
+                (data mapObject (attributes, attributesPos) -> {
+                  ((attributesPos)) : (attributes)
+                })
+              else
+                data
+          })
+        else
+          targetEntity
+    }
+  }
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<flow-ref doc:name="Address-attributes" doc:id="04614e74-95d0-4335-b8b7-d5fec08310ba" name="Address-attributes" />
+			</otherwise>
+		</choice>
+	</sub-flow>
+	<flow name="ClsAPICall-OrgTypeCode" doc:id="67a3db70-606a-4b28-b02d-ff699b839a72" >
+		<set-payload value="#[vars.ClsRequestOrgType]" doc:name="ClsRequestOrgType" doc:id="4bfd6410-81c3-47b7-b395-fce10b7ec09d" />
+		<logger level="INFO" doc:name="beforeCLS" doc:id="888d7cea-a5a8-473a-ac24-1239e5c69531" message="roche-mdm-custom-wrapper-upsertEntities-beforeCLS. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]" />
+		<http:request method="POST" doc:name="HttpsClsConfig" doc:id="5eb9c8bc-fa3c-4fd8-8dd1-93603e887654" config-ref="cls_HTTP_Request" path="/code-lookup" >
+			<http:body ><![CDATA[payload]]></http:body>
+			<http:headers ><![CDATA[#[output application/java
+---
+{
+	
+	messageid : vars.messageid,
+	tid : vars.tid,
+	//Content-Type : application/json
+}]]]></http:headers>
+			<http:query-params ><![CDATA[#[output application/java
+---
+{
+	tenantId : vars.tenantId
+}]]]></http:query-params>
+		</http:request>
+		<logger level="INFO" doc:name="afterCLS" doc:id="521082c0-7878-4ffa-97b6-06e4261623b6" message="roche-mdm-custom-wrapper-upsertEntities-afterCLS. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]" />
+		<ee:transform doc:name="ClsOutputOrgType and varClsOutputCode" doc:id="c761475d-635e-4d7e-b3d7-606c5b75f76f" >
+			<ee:variables >
+				<ee:set-variable variableName="ClsOutputOrgType" ><![CDATA[%dw 2.0
+output application/json  
+
+---
+payload]]></ee:set-variable>
+				<ee:set-variable variableName="varClsOutputCode" ><![CDATA[%dw 2.0
+output application/json  
+---
+payload.SFDCSALES.Account.RocheCategoryTypeCode[0].code]]></ee:set-variable>
+			
+</ee:variables>
+		</ee:transform>
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="7ac35532-00b6-4b2e-ac3e-736f21d3d892" >
+				<ee:transform doc:name="Exception CLS Output code" doc:id="60ce9cae-64f9-46af-a7a4-a61ccc9457f8" >
+					<ee:variables >
+						<ee:set-variable variableName="varCLSOutputConcat" ><![CDATA[%dw 2.0
+output application/json  
+---
+if (vars.varIncomingPayload.entities.entity.Organization.OrganizationRecordTypeId == null or vars.varIncomingPayload.entities.entity.Organization.OrganizationRecordTypeId == "")
+  null
+else
+  vars.CurrentEntity.entity.Organization.OrganizationRecordTypeId joinBy ";"]]></ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+			</on-error-propagate>
+		</error-handler>
+	</flow>
+</mule>

@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+	<sub-flow name="Company-qE" doc:id="ec4bd491-cd53-4a6b-b26a-bc5e35ba5c5d" >
+		<logger level="INFO" doc:name="Company-qE-LogicStart " doc:id="e34d21b2-cad7-4f8a-8d69-3d450f38a789" message="Company-qE-LogicStart. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+		<ee:transform doc:name="CompanyLogic" doc:id="85fe68bc-b7a3-4f20-8127-14f04ec9a92e" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json  
+var arrNodeObj = vars.arrNodeObj filter $.ety == "COMPANY" default []
+var arrFieldsJson = vars.arrFieldsJson filter $.ety == "COMPANY" default []
+var cfLib = readUrl("classpath://dw/GlobalFunctions.dwl")
+
+var OrganizationIdTypeCode = p('OrganizationIdTypeCode')
+var NationalIdTypeCode = p('NationalIdTypeCode')
+var EDPIdTypeCode= p('EDPIdTypeCode')
+var OtherIdTypeCode= p('OtherIdTypeCode')
+
+var lookupANSId = payload.sourceEntity.attributes.Identifiers[0] filter ($.value.Type.lookupCode[0] == "ANSPLAN" or $.value.Type.lookupCode[0] == "ANSPAYER")
+var entity = payload.entities
+fun entitywithoutrelations(entity) =
+  {
+    entity01: entity.entity mapObject {
+      (($$)) : $
+    } - "CompanyAddresses" - "Relations" - "Telephones" - "TotalBedCount"  ++ {
+      DoingBusinessAsName: cfLib.performDoubleDotCheckWithArrayJoin(entity.sourceEntity.attributes.DoingBusinessAsName, ",", null),
+      RCHCustomerGroup: cfLib.performDoubleDotCheckWithArrayJoin(entity.sourceEntity.attributes.CorpParentName, ",", null),
+      RCHManagementType: cfLib.fLookupCodeExtract(entity.sourceEntity.attributes.OwnershipStatus, ",", null),
+      RCHLegalNature: entity.sourceEntity.attributes.LegalType[0].lookupCode default null,
+      RCHActingType: entity.sourceEntity.attributes.CompanyType[0].lookupCode default null,
+      RCHFundingSource: entity.sourceEntity.attributes.FundingSource[0].lookupCode default null,
+      RCHTeachingResearch: cfLib.fLookupCodeExtract(entity.sourceEntity.attributes.ActTypeCode, ",", null),
+      RCHPatientSource: entity.sourceEntity.attributes.PatientSource[0].lookupCode default null,
+      RCHNHSContract: cfLib.fLookupCodeExtract(entity.sourceEntity.attributes.NHSContract, ",", null),
+      RCHPatientProfile: entity.sourceEntity.attributes.PatientProfile[0].lookupCode default null,
+      RCHRoles: cfLib.arraySplitAndJoin(entity.sourceEntity.roles, "/"),
+      RocheCNPJTaxid: 
+        if ((entity.sourceEntity.attributes.Identifiers == null or entity.sourceEntity.attributes.Identifiers == [] or entity.sourceEntity.attributes.Identifiers == ""))
+          null
+        else
+          ((entity.sourceEntity.attributes.Identifiers filter (($.value.Type[0].lookupCode == "CNPJ") and ($.value.Status[0].lookupCode == "ACTV" or $.value.Status[0] == "" or $.value.Status[0] == {} or $.value.Status[0] == [] or $.value.Status[0] == null)) map (sourceCNPJ, indexOfsourceCNPJ) -> {
+            outputCNPJ: sourceCNPJ.value.ID[0].value
+          })[0].outputCNPJ),
+      RocheCNESCode: 
+        if ((entity.sourceEntity.attributes.Identifiers == null or entity.sourceEntity.attributes.Identifiers == [] or entity.sourceEntity.attributes.Identifiers == ""))
+          null
+        else
+          ((entity.sourceEntity.attributes.Identifiers filter (($.value.Type[0].lookupCode == "CNES") and ($.value.Status[0].lookupCode == "ACTV" or $.value.Status[0] == "" or $.value.Status[0] == {} or $.value.Status[0] == [] or $.value.Status[0] == null)) map (sourceCNES, indexOfsourceCNES) -> {
+            outputCNES: sourceCNES.value.ID[0].value
+          })[0].outputCNES),
+      RocheSAPCustid: 
+        if ((entity.sourceEntity.attributes.Identifiers == null or entity.sourceEntity.attributes.Identifiers == [] or entity.sourceEntity.attributes.Identifiers == ""))
+          null
+        else
+          ((entity.sourceEntity.attributes.Identifiers filter (($.value.Type[0].lookupCode == "SAP") and ($.value.Status[0].lookupCode == "ACTV" or $.value.Status[0] == "" or $.value.Status[0] == {} or $.value.Status[0] == [] or $.value.Status[0] == null)) map (sourceCNPJ, indexOfsourceCNPJ) -> {
+            outputCNPJ: sourceCNPJ.value.ID[0].value
+          })[0].outputCNPJ),
+      UCINumber: cfLib.performDoubleDotCheckWithArrayJoin(entity.sourceEntity.attributes.UCINumber, ",", null),
+      TotalBedCount :  entity.sourceEntity.attributes.TotalCensusBeds[0].value  as Number as String {format:"0"} as Number default null ,  
+      RocheHCOOCMFlag: cfLib.performDoubleDotCheckWithArrayJoin(entity.sourceEntity.attributes.OCMFlag, ",", null),
+      RocheHCO340BFlag: cfLib.performDoubleDotCheckWithArrayJoin(entity.sourceEntity.attributes."340BFlag", ",", null),
+      RocheHCOAcademicFlag: cfLib.performDoubleDotCheckWithArrayJoin(entity.sourceEntity.attributes.Academic, ",", null),
+      RocheOrgCategory: cfLib.performArrayNullCheckWithArrayJoin(entity.sourceEntity.attributes.TypeCode, ",", null),
+      CRM4U: 
+        if ((entity.sourceEntity.attributes.Identifiers == null or entity.sourceEntity.attributes.Identifiers == [] or entity.sourceEntity.attributes.Identifiers == ""))
+          null
+        else
+          ((entity.sourceEntity.attributes.Identifiers filter (($.value.Type[0].lookupCode == "CRM4U" or $.value.Type[0].lookupCode == "SFDC") and ($.value.Status[0].lookupCode == "ACTV" or $.value.Status[0] == "" or $.value.Status[0] == {} or $.value.Status[0] == [] or $.value.Status[0] == null)) map (sourceCRM, indexOfSourceCRM) -> {
+            outputCRM: sourceCRM.value.ID[0].value
+          })[0].outputCRM),
+      RocheMDMId: 
+        if ((entity.sourceEntity.attributes.Identifiers == null or entity.sourceEntity.attributes.Identifiers == [] or entity.sourceEntity.attributes.Identifiers == ""))
+          null
+        else
+          ((entity.sourceEntity.attributes.Identifiers filter (($.value.Type[0].lookupCode == "COMM_MDM" or $.value.Type[0].lookupCode == "CRMSYS") and ($.value.Status[0].lookupCode == "ACTV" or $.value.Status[0] == "" or $.value.Status[0] == {} or $.value.Status[0] == [] or $.value.Status[0] == null)) map (sourceCOM, indexOfSourceCOM) -> {
+            outputCOM: sourceCOM.value.ID[0].value
+          })[0].outputCOM),
+      RochePDILID: 
+        if ((entity.sourceEntity.attributes.Identifiers == null or entity.sourceEntity.attributes.Identifiers == [] or entity.sourceEntity.attributes.Identifiers == ""))
+          null
+        else
+          ((entity.sourceEntity.attributes.Identifiers filter (($.value.Type[0].lookupCode == "PDIL") and ($.value.Status[0].lookupCode == "ACTV" or $.value.Status[0] == "" or $.value.Status[0] == {} or $.value.Status[0] == [] or $.value.Status[0] == null)) map (sourcePDL, indexOfSourcePDL) -> {
+            outputPDL: sourcePDL.value.ID[0].value
+          })[0].outputPDL),
+      RocheClinicalTrialSite: 
+        if ((entity.sourceEntity.attributes.RocheClinicalTrialSite.value == null or entity.sourceEntity.attributes.RocheClinicalTrialSite.value == ""))
+          false
+        else
+          (entity.sourceEntity.attributes.RocheClinicalTrialSite.value joinBy ","),
+      DiagnosisAndTreatment: 
+        if ((entity.sourceEntity.attributes.DiagnosisAndTreatments[0].value.DiagnosisAndTreatment.lookupCode == null or entity.sourceEntity.attributes.DiagnosisAndTreatments[0].value.DiagnosisAndTreatment.lookupCode == ""))
+          null
+        else
+          (entity.sourceEntity.attributes.DiagnosisAndTreatments.value.DiagnosisAndTreatment..lookupCode),
+      MDMURIID: (entity.sourceEntity.uri splitBy "/")[1],
+     (CompanyAddresses: entity.entity.CompanyAddresses map (orgAdd, orgAddPos) -> (orgAdd - "Address" ++ {
+          Address: orgAdd.Address ++ {
+            (RCHNeighborhood: entity.sourceEntity.attributes.Address[orgAddPos].value.Neighborhood[0].value) if not entity.sourceEntity.attributes.Address[orgAddPos].value.Neighborhood[0].value == null and entity.sourceEntity.attributes.Address[orgAddPos].value.Neighborhood?,
+            (RCHPremise: entity.sourceEntity.attributes.Address[orgAddPos].value.Premise..value[0]) if entity.sourceEntity.attributes.Address[orgAddPos].value.Premise? and not entity.sourceEntity.attributes.Address[orgAddPos].value.Premise..value == null
+          }  
+           ++ (cfLib.getNodesandFields("Address", arrNodeObj, arrFieldsJson, entity.sourceEntity.attributes.Address[orgAddPos]))
+              ++
+          if (p('CoreR5Flag'))  ({
+             RCHBldg: entity.sourceEntity.attributes.Address[orgAddPos].value.Building[0].value,
+             RCHSbBldg: entity.sourceEntity.attributes.Address[orgAddPos].value.SubBuilding[0].value,
+             RCHSbNeighborhood: entity.sourceEntity.attributes.Address[orgAddPos].value.DoubleDependentLocality[0].value,
+             RCHSbAdmArea: entity.sourceEntity.attributes.Address[orgAddPos].value.SubAdministrativeArea[0].value,
+             RCHSprAdmArea: entity.sourceEntity.attributes.Address[orgAddPos].value.SuperAdministrativeArea[0].value, 
+             RCHPOBox: entity.sourceEntity.attributes.Address[orgAddPos].value.POBox[0].value, 
+			 RCHCountry: entity.sourceEntity.attributes.Address[orgAddPos].value.Country[0].lookupCode
+			 
+         } ++ cfLib.ExtractBrick(entity.sourceEntity.attributes.Address[orgAddPos].value.Brick.value)
+         
+         ) else {}
+        
+        }) ++ {
+          (cfLib.performArrayCodeCheckWithArrayJoin("RocheAddressStatus", entity.sourceEntity.attributes.Address[orgAddPos].value.Status, ""))
+        } ++ {
+          (RocheAddressType: entity.sourceEntity.attributes.Address[orgAddPos].value.AddressType..lookupCode) if not entity.sourceEntity.attributes.Address[orgAddPos].value.AddressType..lookupCode == null and entity.sourceEntity.attributes.Address[orgAddPos].value.AddressType?
+        }) if entity.entity.CompanyAddresses?,
+      (Telephones: entity.entity.Telephones map (individualTele, individualTelePos) -> (individualTele) ++ {
+          (RCHLocalNumber: entity.sourceEntity.attributes.Phone[individualTelePos].value.LocalNumber.value[0]) if entity.sourceEntity.attributes.Phone[individualTelePos].value.LocalNumber? and not entity.sourceEntity.attributes.Phone[individualTelePos].value.LocalNumber.value[0] == null,
+          (RCHAreaCode: entity.sourceEntity.attributes.Phone[individualTelePos].value.AreaCode.value[0]) if entity.sourceEntity.attributes.Phone[individualTelePos].value.AreaCode? and not entity.sourceEntity.attributes.Phone[individualTelePos].value.AreaCode.value[0] == null
+        } ++ (cfLib.getNodesandFields("Telephones", arrNodeObj, arrFieldsJson, entity.sourceEntity.attributes.Phone[individualTelePos]))) if entity.entity.Telephones?,
+      RCHIdentifiers: 
+        if ((entity.sourceEntity.attributes.Identifiers == null or entity.sourceEntity.attributes.Identifiers == [] or entity.sourceEntity.attributes.Identifiers == ""))
+          []
+        else
+          ((entity.sourceEntity.attributes.Identifiers default [] map (sourceID, indexOfSourceId) -> {
+            Type: (sourceID.value.Type.lookupCode)[0],
+            Status: (sourceID.value.Status.lookupCode)[0],
+            Id: (sourceID.value.ID.value)[0]
+          }) filter ((not $.Type == "" and not $.Type == null) and (not $.Id == "" and not $.Id == null))),    	
+      (RCHCompanyType: entity.sourceEntity.attributes.CompanyType[0].lookupCode) if entity.sourceEntity.attributes.CompanyType?,
+      LocalSystemId: p('LocalSystemId')
+    } 
+   ++ (cfLib.getNodesandFields("COMPANY", arrNodeObj, arrFieldsJson, entity.sourceEntity.attributes))  
+ ++
+ if (p('CoreR5Flag'))  ({	
+   (RCHOrganizationIDs: entity.sourceEntity.attributes.Identifiers filter (($.value.Type.lookupCode[0] != null)
+ 	and (OrganizationIdTypeCode contains $.value.Type.lookupCode[0])) map {
+        "ID_$($$)": 
+          if ((OrganizationIdTypeCode contains $.value.Type.lookupCode[0]))
+            ((if ($.value.Type.lookupCode[0] == null)
+              ""
+            else
+              $.value.Type.lookupCode[0] ++ "_") ++ ($.value.ID.value[0]) ++ (if ($.value.State.lookupCode[0] == null)
+              ""
+            else
+              ("_" ++ $.value.State.lookupCode[0])))
+          else
+            null
+      }) if not entity.sourceEntity.attributes.Identifiers == null ,
+ 
+ (RCHNationalIDs: entity.sourceEntity.attributes.Identifiers filter (($.value.Type.lookupCode[0] != null)
+ 	and (NationalIdTypeCode contains $.value.Type.lookupCode[0])) map {
+        "ID_$($$)": 
+          if ((NationalIdTypeCode contains $.value.Type.lookupCode[0]))
+            ((if ($.value.Type.lookupCode[0] == null)
+              ""
+            else
+              $.value.Type.lookupCode[0] ++ "_") ++ ($.value.ID.value[0]) ++ (if ($.value.State.lookupCode[0] == null)
+              ""
+            else
+              ("_" ++ $.value.State.lookupCode[0])))
+          else
+            null
+      }) if not entity.sourceEntity.attributes.Identifiers == null ,
+           
+      (RCHEDPIDs: entity.sourceEntity.attributes.Identifiers filter (($.value.Type.lookupCode[0] != null)
+ 	and (EDPIdTypeCode contains $.value.Type.lookupCode[0])) map {
+        "ID_$($$)": 
+          if ((EDPIdTypeCode contains $.value.Type.lookupCode[0]))
+            ((if ($.value.Type.lookupCode[0] == null)
+              ""
+            else
+              $.value.Type.lookupCode[0] ++ "_") ++ ($.value.ID.value[0]) ++ (if ($.value.State.lookupCode[0] == null)
+              ""
+            else
+              ("_" ++ $.value.State.lookupCode[0])))
+          else
+            null
+      }) if not entity.sourceEntity.attributes.Identifiers == null ,
+      
+      (RCHOtherIDs: entity.sourceEntity.attributes.Identifiers filter (($.value.Type.lookupCode[0] != null)
+ 	and (OtherIdTypeCode contains $.value.Type.lookupCode[0])) map {
+        "ID_$($$)": 
+          if ((OtherIdTypeCode contains $.value.Type.lookupCode[0]))
+            ((if ($.value.Type.lookupCode[0] == null)
+              ""
+            else
+              $.value.Type.lookupCode[0] ++ "_") ++ ($.value.ID.value[0]) ++ (if ($.value.State.lookupCode[0] == null)
+              ""
+            else
+              ("_" ++ $.value.State.lookupCode[0])))
+          else
+            null
+      }) if not entity.sourceEntity.attributes.Identifiers == null ,
+ }) else {}
+    
+    } 
+  
+---
+{
+    entityType: payload.entityType,
+    entities: payload.entities map (entity, entityPos) -> {
+    entityId: entity.entityId,
+    (entity: entitywithoutrelations(entity).entity01) if entity.entity?
+  }
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</sub-flow>
+</mule>

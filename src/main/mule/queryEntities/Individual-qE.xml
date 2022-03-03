@@ -1,0 +1,540 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd">
+	<sub-flow name="Individual-qE" doc:id="4b3ca1e1-d7cb-4512-b942-36585e7ee833" >
+		<logger level="INFO" doc:name="Individual-qE-LogicStart " doc:id="90e62271-5272-45f9-a397-0ca0897b8b5a" message="Individual-qE-LogicStart. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+		<ee:transform doc:name="IndividualLogic"
+            	doc:id="69a794d2-adce-45f6-bf92-f97c1727fcf4" >
+	<ee:message>
+		<ee:set-payload><![CDATA[%dw 2.0
+output application/json  
+
+var ProfessionalIdTypeCode = p('ProfessionalIdTypeCode')
+var NationalIdTypeCode = p('NationalIdTypeCode')
+var EDPIdTypeCode= p('EDPIdTypeCode')
+var OtherIdTypeCode= p('OtherIdTypeCode')
+
+var entity = payload.entities
+var arrNodeObj = vars.arrNodeObj filter $.ety == "INDIVIDUAL" default []
+var arrFieldsJson = vars.arrFieldsJson filter $.ety == "INDIVIDUAL" default []
+var cfLib = readUrl("classpath://dw/GlobalFunctions.dwl")
+var sourceName = ((entity.entity..MasterIndividualIdentifier default [])[0] splitBy "#")[-1]
+var coreR3FieldsFilter = (p('coreR3fieldList') splitBy "|") filter not $ == ""
+
+fun findLastIndex(data) = (data find "#" orderBy  -$)[0]
+
+---
+{
+  entityType: payload.entityType,
+  entities: payload.entities map (entity, entityPos) ->
+   {
+    entityId: entity.entityId,
+    (entity: entity.entity mapObject 
+       (
+      	($$) : $
+       ) - "IndividualAddresses" - "Education" - "Specialties" - "Telephones" - "Compliances" - "LngEidCode"
+         ++ using (sEAttr = entity.sourceEntity.attributes )
+       (  if (p("EnableSpecialty_SEC_OTHR"))
+         ({
+        RocheOtherSpecialities: ((cfLib.specialtyExtract(sEAttr.Specialities, entity.entity.ClientIndividualIdentifier) 
+        	filter (not ("|TEND|SPEC|SEC|" contains $.lookupCode))
+        ) default []) map {
+          RocheClientOthrSpecialtyIdentifier: $.ClientIndividualIdentifier default "default" ++ "#" ++ $.Specialty default "default" ++ "#" ++ $.Rank default "default",
+          RocheOthrSpecialityCode: $.Specialty,
+          RocheOthrSpecialityRank: $.Rank,
+          RocheOthrSpecialityType: $.lookupCode
+        },
+        RocheScndrySpecialties : ((cfLib.specialtyExtract(sEAttr.Specialities, entity.entity.ClientIndividualIdentifier) 
+        	filter ( ( $.lookupCode == "SEC"))
+        ) default []) map {
+        	
+          SpecialtyIdentifier: "",	
+          RocheClientScndrySpecialtyIdentifier: $.ClientIndividualIdentifier default "default" ++ "#" ++ $.Type default "default" ++ "#2",
+          RocheScndrySpecialityCode: $.Specialty,
+          RocheScndrySpecialityRank: 2,
+          RocheScndrySpecialityType: $.lookupCode
+        }, 
+        
+         Specialties:   if (entity.entity.Specialties[0] == null or entity.entity.Specialties[0] == [] ) []
+         
+         else 
+          ([( entity.entity.Specialties[0] - "ClientSpecialtyIdentifier" - "Rank" 
+         	++ using (CSI = entity.entity.Specialties[0].ClientSpecialtyIdentifier) 
+         	 {
+        		"Rank" : 1 ,
+				"ClientSpecialtyIdentifier" : CSI replace CSI[findLastIndex(CSI) +1 to sizeOf(CSI) -1 ] with "1"
+			}) ])       
+      })
+      
+      else ({
+      	Specialties : entity.entity.Specialties[0]
+      	
+      })
+    )
+      
+      
+      ++ using (coreR3Fields = entity.sourceEntity.attributes)
+      ({
+        (RCHDispensingDoctorFlag: coreR3Fields.DispensingHCP[0].lookupCode) if (coreR3FieldsFilter contains "RCHDISPENSINGDOCTORFLAG")
+      } ++ {
+        (RCHSecondarySalutation: coreR3Fields.Prefix2[0].lookupCode) if (coreR3FieldsFilter contains "RCHSECONDARYSALUTATION")
+      } ++ {
+        (RCHInternationalHCP: coreR3Fields.InternationalHCP[0].lookupCode) if (coreR3FieldsFilter contains "RCHINTERNATIONALHCP")
+      }) ++ {
+       (RCHProfessional: sEAttr.Identifiers filter (($.value.Type.lookupCode[0] != null) and (ProfessionalIdTypeCode contains $.value.Type.lookupCode[0])) map {
+        "ID_$($$)": 
+          if ((ProfessionalIdTypeCode contains $.value.Type.lookupCode[0]))
+            ((if ($.value.Type.lookupCode[0] == null)
+              ""
+            else
+              $.value.Type.lookupCode[0] ++ "_") ++ ($.value.ID.value[0]) ++ (if ($.value.State.lookupCode[0] == null)
+              ""
+            else
+              ("_" ++ $.value.State.lookupCode[0])))
+          else
+            null
+      }) if not sEAttr.Identifiers == null,
+      RCHCPFId: 
+        if ((sEAttr.Identifiers == null or sEAttr.Identifiers == [] 
+        	or sEAttr.Identifiers == ""
+        ))
+          null
+        else
+          ((sEAttr.Identifiers filter (($.value.Type[0].lookupCode == "CPF") and 
+          	($.value.Status[0].lookupCode == "ACTV" or $.value.Status[0] == "" or $.value.Status[0] == {} or $.value.Status[0] == [] 
+          		or $.value.Status[0] == null
+          	)
+          ) map (sourceCPF, indexOfSourceCPF) -> {
+            outputCPF: sourceCPF.value.ID[0].value
+          })[0].outputCPF),
+      RCHName: cfLib.performArrayNullCheckWithArrayJoin(sEAttr.Name, " ", null),
+      PreferredName: cfLib.performArrayNullCheckWithArrayJoin(sEAttr.PreferredName, " ", null),
+      UCINumber: cfLib.performDoubleDotCheckWithArrayJoin(sEAttr.UCINumber, ",", null),
+      CRM4U: 
+        if ((sEAttr.Identifiers == null or sEAttr.Identifiers == [] 
+        	or sEAttr.Identifiers == ""
+        ))
+          null
+        else
+          ((sEAttr.Identifiers filter (($.value.Type[0].lookupCode == "CRM4U" or $.value.Type[0].lookupCode == "SFDC") 
+          	and ($.value.Status[0].lookupCode == "ACTV" or $.value.Status[0] == "" or $.value.Status[0] == {} 
+          		or $.value.Status[0] == [] or $.value.Status[0] == null
+          	)
+          ) map (sourceCRM, indexOfSourceCRM) -> {
+            outputCRM: sourceCRM.value.ID[0].value
+          })[0].outputCRM),
+      RocheMDMId: 
+        if ((sEAttr.Identifiers == null or sEAttr.Identifiers == [] 
+        	or sEAttr.Identifiers == ""
+        ))
+          null
+        else
+          ((sEAttr.Identifiers filter (($.value.Type[0].lookupCode == "COMM_MDM" or $.value.Type[0].lookupCode == "CRMSYS") 
+          	and ($.value.Status[0].lookupCode == "ACTV" or $.value.Status[0] == "" or $.value.Status[0] == {} or $.value.Status[0] == [] or $.value.Status[0] == null)
+          ) map (sourceCOM, indexOfSourceCOM) -> {
+            outputCOM: sourceCOM.value.ID[0].value
+          })[0].outputCOM),
+      RCHEducation: 
+        if ((sEAttr.Education == null or sEAttr.Education == [] or sEAttr.Education == ""))
+          []
+        else
+          (sEAttr.Education map (individualEdu, individualEduPos) -> {
+            ProfessionalTypeCode: individualEdu.value.DegreeCategory..value default [] joinBy ",",
+            EducationCode: individualEdu.value.Degree..value default [] joinBy ",",
+            Rank: 
+              if ((not cfLib.concatValues(individualEdu.value.Rank) == null))
+                (cfLib.concatValues(individualEdu.value.Rank))
+              else
+                null,
+            EducationIdentifier: cfLib.EducationIdentifier(cfLib.uri(entity.sourceEntity.uri), ((entity.entity..MasterIndividualIdentifier default [])[0] splitBy "#")[-1], cfLib.concatValues(individualEdu.value.Type)),
+            ClientEducationIdentifier: cfLib.EducationIdentifier(cfLib.uri(entity.sourceEntity.uri), ((entity.entity..MasterIndividualIdentifier default [])[0] splitBy "#")[-1], cfLib.concatValues(individualEdu.value.Type)),
+            (cfLib.getNodesandFields("RCHEducation", arrNodeObj, arrFieldsJson, sEAttr.Education[individualEduPos]))
+          }),
+      RCHRoles: cfLib.arraySplitAndJoin(entity.sourceEntity.roles, "/"),
+      RochePDILID: 
+        if ((sEAttr.Identifiers == null or sEAttr.Identifiers == [] or sEAttr.Identifiers == ""))
+          null
+        else
+          ((sEAttr.Identifiers filter (($.value.Type[0].lookupCode == "PDIL") 
+          	and ($.value.Status[0].lookupCode == "ACTV" or $.value.Status[0] == "" or $.value.Status[0] == {} or $.value.Status[0] == [] or $.value.Status[0] == null)
+          ) map (sourcePDL, indexOfSourcePDL) -> {
+            outputPDL: sourcePDL.value.ID[0].value
+          })[0].outputPDL),
+      InterestSpecialties: 
+        if ((sEAttr.Specialities == null or sEAttr.Specialities == [] or sEAttr.Specialities == ""))
+          []
+        else
+          (sEAttr.Specialities filter ($.value.SpecialtyType[0].value == "Interest") map (source, indexOfSource) -> ({
+            InterestSpecialtyCode: (source.value.Specialty[0].lookupCode),
+           (cfLib.createNewTypeUri("ClientInterestSpecialtyIdentifier", 
+            	entity.entity.ClientIndividualIdentifier, source.value.SpecialtyType[0].lookupCode , source.value.Specialty, "-" )),
+                      InterestSpecialtyRank: 
+              if ((not source.value.Rank[0].value == null and source.value.Rank[0].value == [] and not source.value.Rank[0].value == ""))
+                (source.value.Rank..value joinBy ",")
+              else
+                1,
+            SpecialtyType: source.value.SpecialtyType[0].lookupCode
+          })) ,
+        RCHSpecialities: ((cfLib.specialtyExtract(sEAttr.Specialities, entity.entity.ClientIndividualIdentifier) default []) map {
+        SpecialtyType: $.lookupCode,
+        SpecialtyCode: $.Specialty,
+        SpecialtyIdentifier: $.ClientIndividualIdentifier default "default" ++ "#" ++ $.Specialty default "default" ++ "#" ++ $.Rank default "default",
+        SpecialtyRank: $.Rank,
+        GroupCode: $.GroupCode,
+        (cfLib.getNodesandFields("RCHSpecialities", arrNodeObj, arrFieldsJson, sEAttr.Specialities[($$)]))
+      }),
+      RCHIdentifiers: 
+        if ((sEAttr.Identifiers == null or sEAttr.Identifiers == [] 
+        	or sEAttr.Identifiers == ""
+        ))
+          []
+        else
+          ((sEAttr.Identifiers filter ((not $.value.Type[0].value == "NPI") 
+          	or ($.value.Type[0].value == "NPI" and $.value.Rank[0].value == "1")
+          ) default [] map (sourceID, indexOfSourceId) -> {
+            Type: (sourceID.value.Type.lookupCode)[0],
+            Status: (sourceID.value.Status.lookupCode)[0],
+            Id: (sourceID.value.ID.value)[0]
+          }) filter ((not $.Type == "" and not $.Type == null) and (not $.Id == "" and not $.Id == null))),
+      MDMURIID: ((entity.sourceEntity.uri splitBy "/")[1]),
+      CustomKOLFlag: 
+        if ((sEAttr.KOLTitle.value == null or sEAttr.KOLTitle.value == ""))
+          false
+        else
+          sEAttr.KOLTitle[0].value,
+      HCPInitials: cfLib.performnullCheck(sEAttr.Initials[0].value, null),
+      (IndividualAddresses: entity.entity.IndividualAddresses map (individualAdd, individualAddPos) -> (individualAdd - "Address" ++ {
+          Address: individualAdd.Address ++ {
+            (RCHNeighborhood: sEAttr.Address[individualAddPos].value.Neighborhood[0].value) 
+            if not sEAttr.Address[individualAddPos].value.Neighborhood[0].value == null and sEAttr.Address[individualAddPos].value.Neighborhood?,
+            (RCHPremise: sEAttr.Address[individualAddPos].value.Premise..value[0]) 
+            if sEAttr.Address[individualAddPos].value.Premise? and not sEAttr.Address[individualAddPos].value.Premise..value == null
+          }
+          ++ (cfLib.getNodesandFields("Address", arrNodeObj, arrFieldsJson, sEAttr.Address[individualAddPos]))
+          ++
+          if (p('CoreR5Flag'))  ({
+         //  RCHBldg: sEAttr.Address[individualAddPos].value.Building[0].value,
+             RCHSbBldg: sEAttr.Address[individualAddPos].value.SubBuilding[0].value,
+             RCHSbNeighborhood: sEAttr.Address[individualAddPos].value.DoubleDependentLocality[0].value,
+             RCHSbAdmArea: sEAttr.Address[individualAddPos].value.SubAdministrativeArea[0].value,
+             RCHSprAdmArea: sEAttr.Address[individualAddPos].value.SuperAdministrativeArea[0].value, 
+             RCHPOBox: sEAttr.Address[individualAddPos].value.POBox[0].value, 
+			 RCHCountry: sEAttr.Address[individualAddPos].value.Country[0].lookupCode
+			             
+          } ++   cfLib.ExtractBrick(sEAttr.Address[individualAddPos].value.Brick.value)
+          
+          
+          ) else {}
+          
+           
+        }) ++ {
+          (cfLib.performArrayCodeCheckWithArrayJoin("RocheAddressStatus", sEAttr.Address[individualAddPos].value.Status, ""))
+        } ++ {
+          (RocheAddressType: sEAttr.Address[individualAddPos].value.AddressType..lookupCode) 
+          if sEAttr.Address[individualAddPos].value.AddressType? and not sEAttr.Address[individualAddPos].value.AddressType..lookupCode == null
+        } ++ (cfLib.getNodesandFields("IndividualAddress", arrNodeObj, arrFieldsJson, sEAttr.Address[individualAddPos]))) if entity.entity.IndividualAddresses?,
+      (Telephones: entity.entity.Telephones map (individualTele, individualTelePos) -> (individualTele) ++ {
+          (RCHLocalNumber: sEAttr.Phone[individualTelePos].value.LocalNumber.value[0]) if sEAttr.Phone[individualTelePos].value.LocalNumber? 
+          and not sEAttr.Phone[individualTelePos].value.LocalNumber.value[0] == null,
+          (RCHAreaCode: sEAttr.Phone[individualTelePos].value.AreaCode.value[0]) if sEAttr.Phone[individualTelePos].value.AreaCode? 
+          and not sEAttr.Phone[individualTelePos].value.AreaCode.value[0] == null
+        } ++ (cfLib.getNodesandFields("Telephones", arrNodeObj, arrFieldsJson, sEAttr.Phone[individualTelePos]))) if entity.entity.Telephones?,
+      (cfLib.performArrayCodeCheckWithArrayJoin("RCHCompanyType", sEAttr.CompanyType[0], ""))
+    } ++ ({
+      Compliances: ((sEAttr.License default [] 
+      	filter (cfLib.amsFilter(sEAttr) and ($.value.SourceCD[0].value ~= p("CompliancesSourceCD")))
+      ) map (License, indexOfLicense) -> {
+        LicenseTypeCode: cfLib.concatCodes(License.value.Category),
+        LicenseEid: cfLib.concatValues(License.value.Number),
+        LicenseTerritoryCode: cfLib.concatCodes(License.value.State),
+        LicenseRank: 
+          if ((not cfLib.concatValues(License.value.Rank) == null and not cfLib.concatValues(License.value.Rank) == "" and (cfLib.concatValues(License.value.Rank) matches /^[0-9]*/)))
+            (cfLib.concatValues(License.value.Rank) as Number)
+          else
+            (indexOfLicense + 1),
+        LicenseeType: cfLib.concatValues(License.value.Type),
+        LicenseStatusCode: cfLib.concatCodes(License.value.Status),
+        IssuedDate: cfLib.verifyTime(cfLib.concatValues(License.value.IssueDate)),
+        ExpirationDate: cfLib.verifyTime(cfLib.concatValues(License.value.ExpirationDate)),
+        LicensePrivilegesText: cfLib.concatValues(License.value.PrivilegeId),
+        ComplianceIdentifier: cfLib.ComplianceIdentifier(cfLib.uri(entity.sourceEntity.uri default ""), sourceName, (cfLib.concatCodes(License.value.Category)), (cfLib.concatValues(License.value.Rank))),
+        ClientComplianceIdentifier: cfLib.ComplianceIdentifier(cfLib.uri(entity.sourceEntity.uri default ""), sourceName, (cfLib.concatCodes(License.value.Category)), (cfLib.concatValues(License.value.Rank))),
+        AdjExpirationDate: License.value.AdjExpirationDate..value default [] joinBy ",",
+        SampleEligibility: License.value.SampleEligibility..value default [] joinBy ",",
+        ProfessionalDesignation: License.value.ProfessionalDesignation..value default [] joinBy ",",
+        (cfLib.getNodesandFields("Compliances", arrNodeObj, arrFieldsJson, License))
+      }) filter (not $.LicenseTypeCode == null or not $.LicenseEid == null)
+    })
+     ++ { LocalSystemId: p("LocalSystemId")}
+     ++ { ( RCHCustDegree : sEAttr.Education.value.Degree[0][0].value default null) if p('CoreR5Flag')  }
+     
+     
+     ++ (cfLib.getNodesandFields("INDIVIDUAL", arrNodeObj, arrFieldsJson, sEAttr))
+     ++
+ if (p('CoreR5Flag'))  ({
+   
+ 
+ (RCHNationalIDs: sEAttr.Identifiers filter (($.value.Type.lookupCode[0] != null)
+ 	and (NationalIdTypeCode contains $.value.Type.lookupCode[0])) map {
+        "ID_$($$)": 
+          if ((NationalIdTypeCode contains $.value.Type.lookupCode[0]))
+            ((if ($.value.Type.lookupCode[0] == null)
+              ""
+            else
+              $.value.Type.lookupCode[0] ++ "_") ++ ($.value.ID.value[0]) ++ (if ($.value.State.lookupCode[0] == null)
+              ""
+            else
+              ("_" ++ $.value.State.lookupCode[0])))
+          else
+            null
+      }) if not sEAttr.Identifiers == null ,
+    
+      (RCHEDPIDs: sEAttr.Identifiers filter (($.value.Type.lookupCode[0] != null)
+ 	and (EDPIdTypeCode contains $.value.Type.lookupCode[0])) map {
+        "ID_$($$)": 
+          if ((EDPIdTypeCode contains $.value.Type.lookupCode[0]))
+            ((if ($.value.Type.lookupCode[0] == null)
+              ""
+            else
+              $.value.Type.lookupCode[0] ++ "_") ++ ($.value.ID.value[0]) ++ (if ($.value.State.lookupCode[0] == null)
+              ""
+            else
+              ("_" ++ $.value.State.lookupCode[0])))
+          else
+            null
+      }) if not sEAttr.Identifiers == null ,
+      
+      (RCHOtherIDs: sEAttr.Identifiers filter (($.value.Type.lookupCode[0] != null)
+ 	and (OtherIdTypeCode contains $.value.Type.lookupCode[0])) map {
+        "ID_$($$)": 
+          if ((OtherIdTypeCode contains $.value.Type.lookupCode[0]))
+            ((if ($.value.Type.lookupCode[0] == null)
+              ""
+            else
+              $.value.Type.lookupCode[0] ++ "_") ++ ($.value.ID.value[0]) ++ (if ($.value.State.lookupCode[0] == null)
+              ""
+            else
+              ("_" ++ $.value.State.lookupCode[0])))
+          else
+            null
+      }) if not sEAttr.Identifiers == null ,
+      (
+      	RCHDebarred: 
+        if ((sEAttr.Debarred == null or sEAttr.Debarred == [] 
+        	or sEAttr.Debarred == ""
+        ))
+          []
+        else
+          ((sEAttr.Debarred default [] map (sourceID, indexOfSourceId) -> {
+            EffectiveDate : (sourceID.value.EffectiveDate.value)[0],
+            Status: (sourceID.value.Status.lookupCode)[0],
+            EndDate: (sourceID.value.EndDate.value)[0],
+			State:(sourceID.value.State.lookupCode)[0]
+          }) filter ((not $.Status == "") and (not $.State == null)))
+      	
+      ),
+      LngEidCode : sEAttr.PreferredLanguage[0].lookupCode,
+      RCHScientificAreaExpert: sEAttr.ScientificAreaExpertRef default [] map (SAExp,indexOfSAExp) -> {
+      	RCHSAECountry : SAExp.value.Country[0].lookupCode ,
+        RCHSAEPreferredName : SAExp.value.PreferredName[0].value ,
+        RCHSAEName : SAExp.value.Name[0].value ,
+        RCHSAEType : SAExp.value.Type[0].lookupCode,
+        ScntfcArea : SAExp.value.ScntfcArea[0].lookupCode
+        }
+      
+ }) else {
+ 	LngEidCode : entity.entity.LngEidCode 
+ }
+  ) if entity.entity? 
+  }
+}
+]]></ee:set-payload>
+	</ee:message>
+	<ee:variables>
+	</ee:variables>
+</ee:transform>
+<choice doc:name="USFlagSpecialties check"
+      	doc:id="c688e061-5c4e-42fb-9654-c533ff9eb38f" >
+	<when expression="#[p('EnableSpecialty_SEC_OTHR')]">
+		<ee:transform doc:name="fIndvPayload"
+            			doc:id="f7460bcb-7e38-4c48-872a-7e4edaf0a210">
+			<ee:message>
+			</ee:message>
+			<ee:variables>
+				<ee:set-variable variableName="fIndvPayload" ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<flow-ref doc:name="ScndrySpecialty_clientSpecialtyIndentifier"
+        			doc:id="63c92848-4226-4887-9727-b8722370c809"
+        			name="ScndrySpecialty_clientSpecialtyIndentifier"/>
+		<set-payload value="#[vars.fIndvPayload]"
+           			doc:name="restore modified Payload"
+           			doc:id="6051da9b-3786-4a0a-87b4-5140cb615264" />
+		<ee:transform doc:name="reAdd Specialties"
+            			doc:id="725c8dfa-1c97-49b2-8054-b10808d3fa60" >
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json  
+---
+{
+  entityType: payload.entityType,
+  entities: payload.entities default [] map (v1, k1) -> ((v1 default {} mapObject (v2, k2) -> {
+        ((k2)) : v2
+      }) - "entity" ++ {
+      entity: payload.entities[k1].entity default {} mapObject {
+        (($$)) : $
+      } - "Specialties" - "RocheScndrySpecialties" - "InterestSpecialties"++  {
+        Specialties: payload.entities[k1].entity.Specialties default [] map (v3, k3) -> {
+         SpecialtyIdentifier: vars.fFinalSpecKeyValuePair[v3.ClientSpecialtyIdentifier] default v3.SpecialtyIdentifier,
+          ClientSpecialtyIdentifier: v3.ClientSpecialtyIdentifier,
+          SpecialtyCode: v3.SpecialtyCode,
+          Rank: v3.Rank
+        }
+      } 
+       ++ 
+      {
+      	RocheScndrySpecialties :  payload.entities[k1].entity.RocheScndrySpecialties default [] map ((v4,k4) -> {
+              (v4)} - "SpecialtyIdentifier" ++ 
+         {"SpecialtyIdentifier" : vars.fFinalSpecKeyValuePair[v4.RocheClientScndrySpecialtyIdentifier] default v4.RocheClientScndrySpecialtyIdentifier }
+      )}
+      
+      ++ 
+      {
+      	InterestSpecialties : payload.entities[k1].entity.InterestSpecialties default [] map ((v5,k5) -> {
+      		(v5)} ++ 
+      		{"SpecialtyIdentifier" : vars.fFinalSpecKeyValuePair[v5.ClientInterestSpecialtyIdentifier] default v5.ClientInterestSpecialtyIdentifier }
+      	)
+      }
+   } 
+  )
+}
+      
+    
+
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO"
+      			doc:name="non-US specialties"
+      			doc:id="36a17903-a72c-45df-8cfd-bd9078331bc2"
+      			message="non-US specialties flow have executed successfully for individual entity. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+	</when>
+	<otherwise>
+		<logger level="INFO"
+      			doc:name="not EnableSpecialty_SEC_OTHR "
+      			doc:id="e26061dc-3366-41c7-aacb-9b587b2c847a"
+      			message="US specialties flow have executed successfully for individual entity. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]"/>
+	</otherwise>
+</choice>
+		
+	</sub-flow>
+	
+	
+	<sub-flow name="ScndrySpecialty_clientSpecialtyIndentifier">
+        <ee:transform doc:name="Extracting clientSpecialtyIdentifier for specialty">
+            <ee:variables>
+                <ee:set-variable variableName="fClientSpecialtyIdentifier"><![CDATA[%dw 2.0
+output application/json  
+---
+((flatten(payload..Specialties) default []) filter $.Rank == 1)..ClientSpecialtyIdentifier default []]]></ee:set-variable>
+                <ee:set-variable variableName="fSpecialtyFieldCheck"><![CDATA[%dw 2.0
+output application/java  
+---
+if (sizeOf((((flatten(payload..Specialties) default []) filter ( $.Rank == 1))..ClientSpecialtyIdentifier default [])) > 0 )
+ sizeOf((((flatten(payload..Specialties) default []) filter ( $.Rank == 1))..ClientSpecialtyIdentifier default []))
+
+else if (sizeOf((((flatten(payload..RocheScndrySpecialties) default []) filter ( $.RocheScndarySpecialityRank == 2))..RocheClientScndrySpecialtyIdentifier default [])) > 0 )
+ sizeOf((((flatten(payload..RocheScndrySpecialties) default []) filter ( $.RocheScndarySpecialityRank == 2))..RocheClientScndrySpecialtyIdentifier default []))
+
+else if (sizeOf(flatten(payload..ClientInterestSpecialtyIdentifier) default []) > 0)
+        sizeOf(flatten(payload..ClientInterestSpecialtyIdentifier) default [])
+
+else 
+ 0 ]]></ee:set-variable>
+				<ee:set-variable variableName="fRocheClientScndrySpecialtyIdentifier" ><![CDATA[%dw 2.0
+output application/json  
+---
+((flatten(payload..RocheScndrySpecialties) default []) filter $.RocheScndrySpecialityRank == 2)..RocheClientScndrySpecialtyIdentifier default []]]></ee:set-variable>
+				<ee:set-variable variableName="fClientInterestSpecialtyIdentifier" ><![CDATA[%dw 2.0
+output application/json
+---
+flatten(payload..ClientInterestSpecialtyIdentifier) default []]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <choice doc:name="check size and CUST-SYNC">
+            <when expression='#[vars.fSpecialtyFieldCheck &gt; 0 and upper(vars.fInputPayload.entityDomainCode) != "CUST-SYNC"]'>
+                <ee:transform doc:name="ERSAPICallVariables and body">
+                    <ee:variables>
+                        <ee:set-variable variableName="fHost"><![CDATA[%dw 2.0
+output application/java  
+---
+vars.fInputPayload.source.ers.host]]></ee:set-variable>
+                        <ee:set-variable variableName="fPort"><![CDATA[%dw 2.0
+output application/java  
+---
+vars.fInputPayload.source.ers.port]]></ee:set-variable>
+                        <ee:set-variable variableName="fBasePath"><![CDATA[%dw 2.0
+output application/java  
+---
+vars.fInputPayload.source.ers.basePath]]></ee:set-variable>
+                        <ee:set-variable variableName="fUserName"><![CDATA[%dw 2.0
+output application/java 
+import * from dw::core::Binaries 
+---
+(read ( fromBase64 (vars.fInputPayload.source.ers.credentials))).clientId]]></ee:set-variable>
+                        <ee:set-variable variableName="fPassword"><![CDATA[%dw 2.0
+output application/java 
+import * from dw::core::Binaries 
+---
+(read ( fromBase64 (vars.fInputPayload.source.ers.credentials))).clientSecret]]></ee:set-variable>
+                        <ee:set-variable variableName="ERSpath"><![CDATA[%dw 2.0
+output application/java  
+---
+"/resolve-ids-entity" as String
+]]></ee:set-variable>
+                        <ee:set-variable variableName="ERSmethod"><![CDATA[%dw 2.0
+output application/java  
+---
+"POST" as String]]></ee:set-variable>
+						<ee:set-variable variableName="ftenantId" ><![CDATA[%dw 2.0
+output application/java
+---
+vars.tenantId]]></ee:set-variable>
+						<ee:set-variable variableName="fERSBody" ><![CDATA[%dw 2.0
+output application/json  
+---
+
+{
+  systemName: "RELTIOMDM",
+  entityName: "SPECIALTY",
+  entityIds: (vars.fClientSpecialtyIdentifier  default [] distinctBy $ ) 
+          ++ (vars.fRocheClientScndrySpecialtyIdentifier default [] distinctBy $)
+          ++ ( vars.fClientInterestSpecialtyIdentifier  default [] distinctBy $ )
+}
+]]></ee:set-variable>
+                    
+</ee:variables>
+                </ee:transform>
+                <flow-ref name="ERS-CommonHTTP-call" doc:name="ERS-CommonHTTP-call" />
+                <ee:transform doc:name="fFinalSpecKeyValuePair">
+                    <ee:variables>
+                        <ee:set-variable variableName="fFinalSpecKeyValuePair">%dw 2.0
+output application/json  
+---
+payload</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </when>
+            <otherwise>
+                <logger level="INFO" doc:name="no Primary or Seconday Specialty or entityDomainCode is CUST-SYNC" message="default flow have executed for the flow AddingClientSpecialtyIdentifieToSecSpecialty : No Specialty value in the payload or entityDomainCode is CUST-SYNC.  messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]" />
+            </otherwise>
+        </choice>
+        <logger message="AddingClientSpecialtyIdentifieToSecSpecialty flow have completed successfully. messageid: #[vars.messageId], tenantId: #[vars.tenantId], jobId: #[vars.jobId], tId: #[vars.tid]" level="INFO" doc:name="flow success logger" />
+    </sub-flow>
+</mule>
